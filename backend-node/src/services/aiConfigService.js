@@ -1,4 +1,6 @@
 // AI 配置 CRUD，与 Go application/services/ai_service.go 对齐
+const fs = require('fs');
+const path = require('path');
 function modelToDb(model) {
   if (model == null) return null;
   if (Array.isArray(model)) return JSON.stringify(model);
@@ -404,6 +406,94 @@ async function testConnection(opts) {
   }
 }
 
+/**
+ * 返回 vendor_lock 状态
+ */
+function getVendorLockStatus(cfg) {
+  const lock = cfg?.vendor_lock;
+  return {
+    enabled: !!(lock?.enabled),
+    config_file: lock?.config_file || '',
+  };
+}
+
+/**
+ * 启动时同步 vendor_lock 指定的配置文件到数据库。
+ * - 软删除所有现有配置，按文件重新导入
+ * - 若同 service_type + provider 在 DB 中已有记录，则保留用户修改过的 api_key
+ */
+function applyVendorLock(db, log, cfg) {
+  const status = getVendorLockStatus(cfg);
+  if (!status.enabled) return;
+
+  const configFile = status.config_file;
+  if (!configFile) {
+    log.warn && log.warn('vendor_lock enabled but config_file is empty');
+    return;
+  }
+
+  const candidates = [
+    path.join(process.cwd(), 'configs', configFile),
+    path.join(__dirname, '..', '..', 'configs', configFile),
+  ];
+  let raw = null;
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { raw = fs.readFileSync(p, 'utf8'); break; }
+  }
+  if (!raw) {
+    console.warn('[vendor_lock] config file not found:', configFile);
+    return;
+  }
+
+  let configs;
+  try {
+    configs = JSON.parse(raw);
+    if (!Array.isArray(configs)) throw new Error('config file must be a JSON array');
+  } catch (e) {
+    console.error('[vendor_lock] failed to parse config file:', e.message);
+    return;
+  }
+
+  // 保存现有 api_key（key: "service_type:provider"）
+  const existing = db.prepare('SELECT service_type, provider, api_key FROM ai_service_configs WHERE deleted_at IS NULL').all();
+  const savedKeys = new Map();
+  for (const row of existing) {
+    savedKeys.set(`${row.service_type}:${row.provider}`, row.api_key);
+  }
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE ai_service_configs SET deleted_at = ? WHERE deleted_at IS NULL').run(now);
+
+  for (const item of configs) {
+    const mapKey = `${item.service_type}:${item.provider}`;
+    const apiKey = savedKeys.get(mapKey) ?? item.api_key ?? '';
+    const model = Array.isArray(item.model)
+      ? JSON.stringify(item.model)
+      : item.model ? JSON.stringify([item.model]) : '[]';
+    db.prepare(
+      `INSERT INTO ai_service_configs
+        (service_type, provider, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    ).run(
+      item.service_type || 'text',
+      item.provider || '',
+      item.name || '',
+      item.base_url || '',
+      apiKey,
+      model,
+      item.default_model || null,
+      item.endpoint || '',
+      item.query_endpoint || '',
+      item.priority ?? 0,
+      item.is_default ? 1 : 0,
+      item.settings || null,
+      now,
+      now
+    );
+  }
+  console.log(`[vendor_lock] synced ${configs.length} configs from ${configFile}`);
+}
+
 module.exports = {
   listConfigs,
   getConfig,
@@ -411,4 +501,6 @@ module.exports = {
   updateConfig,
   deleteConfig,
   testConnection,
+  getVendorLockStatus,
+  applyVendorLock,
 };

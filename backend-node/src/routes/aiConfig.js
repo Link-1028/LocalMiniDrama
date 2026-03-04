@@ -18,8 +18,18 @@ function get(db) {
   };
 }
 
-function create(db, log) {
+function vendorLock(cfg) {
   return (req, res) => {
+    const status = aiConfigService.getVendorLockStatus(cfg);
+    response.success(res, status);
+  };
+}
+
+function create(db, log, cfg) {
+  return (req, res) => {
+    if (aiConfigService.getVendorLockStatus(cfg).enabled) {
+      return response.badRequest(res, '当前为厂商锁定模式，不允许添加配置');
+    }
     const body = req.body || {};
     if (!body.service_type || !body.name || !body.provider || !body.base_url) {
       return response.badRequest(res, '缺少必填字段: service_type, name, provider, base_url');
@@ -40,18 +50,31 @@ function create(db, log) {
   };
 }
 
-function update(db, log) {
+function update(db, log, cfg) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return response.badRequest(res, '无效的配置ID');
-    const config = aiConfigService.updateConfig(db, log, id, req.body || {});
+
+    let body = req.body || {};
+    // 锁定模式下只允许修改 api_key 和 default_model
+    if (aiConfigService.getVendorLockStatus(cfg).enabled) {
+      const allowed = {};
+      if (body.api_key !== undefined) allowed.api_key = body.api_key;
+      if (body.default_model !== undefined) allowed.default_model = body.default_model;
+      body = allowed;
+    }
+
+    const config = aiConfigService.updateConfig(db, log, id, body);
     if (!config) return response.notFound(res, '配置不存在');
     response.success(res, config);
   };
 }
 
-function remove(db, log) {
+function remove(db, log, cfg) {
   return (req, res) => {
+    if (aiConfigService.getVendorLockStatus(cfg).enabled) {
+      return response.badRequest(res, '当前为厂商锁定模式，不允许删除配置');
+    }
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return response.badRequest(res, '无效的配置ID');
     const ok = aiConfigService.deleteConfig(db, log, id);
@@ -83,13 +106,14 @@ function testConnection(log) {
   };
 }
 
-module.exports = function aiConfigRoutes(db, log) {
+module.exports = function aiConfigRoutes(db, log, cfg) {
   return {
     list: list(db),
     get: get(db),
-    create: create(db, log),
-    update: update(db, log),
-    delete: remove(db, log),
+    vendorLock: vendorLock(cfg),
+    create: create(db, log, cfg),
+    update: update(db, log, cfg),
+    delete: remove(db, log, cfg),
     testConnection: testConnection(log),
   };
 };

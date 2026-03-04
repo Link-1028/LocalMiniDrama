@@ -30,18 +30,16 @@ function getCharacterExtractionPrompt(cfg) {
   if (isEnglish(cfg)) {
     return `You are a professional character analyst, skilled at extracting and analyzing character information from scripts.
 
-Your task is to extract and organize detailed character settings for all characters appearing in the script based on the provided script content.
+Your task is to extract and organize character settings for all named characters in the script.
 
 Requirements:
 1. Extract all characters with names (ignore unnamed passersby or background characters)
 2. For each character, extract:
    - name: Character name
    - role: Character role (main/supporting/minor)
-   - appearance: Physical appearance description (150-300 words)
-   - personality: Personality traits (100-200 words)
-   - description: Background story and character relationships (100-200 words)
-3. Appearance must be detailed enough for AI image generation, including: gender, age, body type, facial features, hairstyle, clothing style, etc. but do not include any scene, background, environment information
-4. Main characters require more detailed descriptions, supporting characters can be simplified
+   - appearance: Detailed physical appearance for AI image generation (gender, age, body type, facial features, hairstyle, clothing style — NO scene or background info)
+   - description: Brief background and relationships (50-100 words)
+3. Main characters need detailed appearance; supporting characters can be simplified
 - **Style Requirement**: ${style}
 - **Image Ratio**: ${imageRatio}
 Output Format:
@@ -54,18 +52,18 @@ Each element is a character object containing the above fields.`;
   }
   return `你是一个专业的角色分析师，擅长从剧本中提取和分析角色信息。
 
-你的任务是根据提供的剧本内容，提取并整理剧中出现的所有角色的详细设定。
+**【语言要求】所有字段的值必须使用中文，禁止出现英文内容（role字段的值除外，固定为 main/supporting/minor）。**
+
+你的任务是根据提供的剧本内容，提取并整理剧中出现的所有有名字角色的设定。
 
 要求：
 1. 提取所有有名字的角色（忽略无名路人或背景角色）
-2. 对每个角色，提取以下信息：
-   - name: 角色名字
-   - role: 角色类型（main/supporting/minor）
-   - appearance: 外貌描述（150-300字）
-   - personality: 性格特点（100-200字）
-   - description: 背景故事和角色关系（100-200字）
-3. 外貌描述要足够详细，适合AI生成图片，包括：性别、年龄、体型、面部特征、发型、服装风格等,但不要包含任何场景、背景、环境等信息
-4. 主要角色需要更详细的描述，次要角色可以简化
+2. 对每个角色，提取以下信息（全部用中文填写）：
+   - name: 角色名字（中文）
+   - role: 角色类型，固定值之一：main / supporting / minor
+   - appearance: 外貌描述（中文，100-200字，包含性别、年龄、体型、面部特征、发型、服装风格等，不含任何场景或环境信息）
+   - description: 背景故事和角色关系（中文，50-100字）
+3. 主要角色外貌要详细，次要角色可简化
 - **风格要求**：${style}
 - **图片比例**：${imageRatio}
 输出格式：
@@ -193,7 +191,7 @@ function formatUserPrompt(cfg, key, ...args) {
   const imageRatio = cfg?.style?.default_image_ratio || '16:9';
   const templates = {
     en: {
-      character_request: 'Script content:\n%s\n\nPlease extract and organize detailed character profiles for up to %d main characters from the script.',
+      character_request: 'Script content:\n%s\n\nPlease extract and organize detailed character profiles for ALL named characters from the script.',
       drama_info_template: `Title: %s\nSummary: %s\nGenre: %s\nStyle: ${style}\nImage ratio: ${imageRatio}`,
       script_content_label: '【Script Content】',
       task_label: '【Task】',
@@ -219,7 +217,7 @@ function formatUserPrompt(cfg, key, ...args) {
       video_duration_constraint: '**Constraint**: Total video duration must be around %s seconds (allow ±10%). Please adjust shot count and duration to meet this requirement.',
     },
     zh: {
-      character_request: '剧本内容：\n%s\n\n请从剧本中提取并整理最多 %d 个主要角色的详细设定。',
+      character_request: '剧本内容：\n%s\n\n请提取剧本中所有有名字角色的设定。',
       drama_info_template: `剧名：%s\n简介：%s\n类型：%s\n风格: ${style}\n图片比例: ${imageRatio}`,
       script_content_label: '【剧本内容】',
       task_label: '【任务】',

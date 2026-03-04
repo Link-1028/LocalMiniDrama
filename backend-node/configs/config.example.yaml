@@ -37,3 +37,8 @@ style:
   default_video_ratio: "16:9"
   default_prop_ratio: "1:1"
   default_image_size: "1024x1024"
+
+# 厂商锁定模式：启用后只使用指定配置文件中的 AI 服务，用户只能修改 API Key 和默认模型
+vendor_lock:
+  enabled: false
+  config_file: "ai-configs-stary.json"

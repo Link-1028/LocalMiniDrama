@@ -6,7 +6,6 @@ const { safeParseAIJSON } = require('../utils/safeJson');
 
 async function processCharacterGeneration(db, cfg, log, taskID, req) {
   taskService.updateTaskStatus(db, taskID, 'processing', 0, '正在生成角色...');
-  const count = req.count || 5;
   let outlineText = req.outline || '';
 
   // 读取剧的 style 和 metadata.aspect_ratio，覆盖全局 cfg
@@ -41,15 +40,20 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
       dramaRow.genre || ''
     );
   }
-  const userPrompt = promptI18n.formatUserPrompt(effectiveCfg, 'character_request', outlineText, count);
+  const userPrompt = promptI18n.formatUserPrompt(effectiveCfg, 'character_request', outlineText);
   const systemPrompt = promptI18n.getCharacterExtractionPrompt(effectiveCfg);
   const temperature = req.temperature != null ? req.temperature : 0.7;
+
+  // 固定 6000 tokens：足够约 10-12 个角色（每角色约 400-500 tokens）
+  // repairTruncatedJsonArray 兜底处理极端截断情况
+  const maxTokensForChars = 6000;
 
   let text;
   try {
     text = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
       model: req.model || undefined,
       temperature,
+      max_tokens: maxTokensForChars,
     });
   } catch (err) {
     log.error('Character generation AI failed', { error: err.message, task_id: taskID });
@@ -57,12 +61,15 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
     return;
   }
 
+  console.log('[角色生成] AI 原始返回：\n' + text);
+
   let result;
   try {
     result = safeParseAIJSON(text, []);
     if (!Array.isArray(result)) result = [];
   } catch (err) {
     log.error('Character generation parse failed', { error: err.message, task_id: taskID });
+    console.error('[角色生成] JSON解析失败，原始内容：\n' + text);
     taskService.updateTaskStatus(db, taskID, 'failed', 0, '解析AI返回结果失败');
     return;
   }
@@ -136,7 +143,6 @@ function generateCharacters(db, cfg, log, req) {
       drama_id: req.drama_id,
       episode_id: req.episode_id,
       outline: req.outline,
-      count: req.count || 5,
       temperature: req.temperature,
       model: req.model,
     }).catch((err) => {

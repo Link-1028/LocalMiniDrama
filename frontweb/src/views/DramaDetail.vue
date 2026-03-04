@@ -2,15 +2,19 @@
   <div class="drama-detail">
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo" @click="router.push('/')">LocalMiniDrama.ai</h1>
+        <h1 class="logo" @click="router.push('/')">
+          <span class="logo-main">本地短剧助手</span>
+          <span class="logo-sub">LocalMiniDrama</span>
+        </h1>
+        <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ drama?.title || '剧集管理' }}</span>
+        <el-button class="btn-back-list" @click="router.push('/')">
+          <el-icon><ArrowLeft /></el-icon>返回列表
+        </el-button>
         <div class="header-actions">
           <el-button class="btn-theme" :title="isDark ? '切换到白天模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '白天' : '暗色' }}
-          </el-button>
-          <el-button @click="router.push('/')">
-            <el-icon><ArrowLeft /></el-icon>返回列表
           </el-button>
           <el-button type="primary" @click="goCreate">
             <el-icon><VideoPlay /></el-icon>进入制作
@@ -1136,24 +1140,128 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.drama-detail { min-height: 100vh; background: #0f0f12; color: #e4e4e7; }
-.header { background: #18181b; border-bottom: 1px solid #27272a; padding: 12px 24px; }
-html.light .drama-detail .header {
-  background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%) !important;
+.drama-detail {
+  min-height: 100vh;
+  background: #0f0f12;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -20%, rgba(120, 60, 220, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(60, 100, 220, 0.12) 0%, transparent 60%);
+  color: #e4e4e7;
 }
-html.light .drama-detail .logo {
-  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+.header {
+  background: rgba(18, 18, 22, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+  padding: 12px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
+}
+html.light .drama-detail {
+  background: #f5f3ff;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -20%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
+}
+html.light .drama-detail .header {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: rgba(139, 92, 246, 0.2) !important;
+  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.08) !important;
+}
+.logo {
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+  transition: filter 0.3s;
+}
+.logo:hover { filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.5)); }
+.logo-main {
+  font-size: 1.1rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #c4b5fd 0%, #818cf8 50%, #a78bfa 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+.logo-sub {
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: #6d6d7a;
+  -webkit-text-fill-color: #6d6d7a;
+}
+html.light .drama-detail .logo-main {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+html.light .drama-detail .logo-sub {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+}
 .header-inner { max-width: min(1200px, 96vw); margin: 0 auto; display: flex; align-items: center; gap: 16px; }
-.logo { font-size: 1.2rem; font-weight: 600; color: #fafafa; margin: 0; cursor: pointer; }
-.page-title { color: #a1a1aa; font-size: 0.95rem; }
-.header-actions { margin-left: auto; display: flex; gap: 8px; }
+.breadcrumb-sep {
+  color: #3f3f46;
+  font-size: 1rem;
+  font-weight: 300;
+  flex-shrink: 0;
+  user-select: none;
+}
+html.light .breadcrumb-sep { color: #d1d5db; }
+.page-title {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 10px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html.light .page-title {
+  color: #6b7280;
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.15);
+}
+.btn-back-list {
+  flex-shrink: 0;
+}
+.header-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
 .main { max-width: min(1200px, 96vw); margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
-.section.card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px 24px; }
+.section.card {
+  background: rgba(24, 24, 27, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(63, 63, 70, 0.7);
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+.section.card:hover {
+  border-color: rgba(139, 92, 246, 0.25);
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(139, 92, 246, 0.08);
+}
+html.light .section.card {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(139, 92, 246, 0.15);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.06);
+}
+html.light .section.card:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 6px 28px rgba(139, 92, 246, 0.1);
+}
 .section-title { font-size: 1rem; font-weight: 600; color: #fafafa; margin-bottom: 16px; }
+html.light .section-title { color: #18181b; }
 .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .section-header .section-title { margin-bottom: 0; }
 .section-count { color: #71717a; font-size: 0.85rem; }
@@ -1163,21 +1271,32 @@ html.light .drama-detail .logo {
 /* 分集卡片 */
 .episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .episode-card {
-  background: #1c1c1e;
-  border: 1px solid #27272a;
-  border-radius: 8px;
+  background: rgba(28, 28, 30, 0.8);
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  border-radius: 12px;
   padding: 16px;
   cursor: pointer;
-  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s, background 0.2s;
+  transition: border-color 0.25s, transform 0.2s, box-shadow 0.25s, background 0.2s;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.episode-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.25s;
 }
 .episode-card:hover {
-  border-color: var(--el-color-primary);
-  background: #232326;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(35, 35, 38, 0.9);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(139, 92, 246, 0.15);
 }
+.episode-card:hover::before { opacity: 1; }
 .episode-card:hover .episode-enter {
   color: var(--el-color-primary);
   opacity: 1;
@@ -1292,8 +1411,9 @@ html.light .drama-detail .logo {
 .res-tab--drama.active { color: #a78bfa; font-size: 14px; font-weight: 600; }
 .res-tab--drama.active::after { background: #a78bfa; }
 
-html.light .episode-card { background: #f9f9fb; border-color: #e4e4e7; }
-html.light .episode-card:hover { background: #f0f0f5; border-color: var(--el-color-primary); box-shadow: 0 6px 20px rgba(0,0,0,0.10); }
+html.light .episode-card { background: rgba(255, 255, 255, 0.85); border-color: rgba(139, 92, 246, 0.12); }
+html.light .episode-card:hover { background: rgba(245, 243, 255, 0.95); border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 8px 24px rgba(139, 92, 246, 0.12); }
+html.light .episode-card::before { background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), transparent 60%); }
 html.light .episode-enter { border-top-color: #e4e4e7; color: #a1a1aa; }
 html.light .episode-card:hover .episode-enter { color: var(--el-color-primary); }
 html.light .episode-title { color: #18181b; }

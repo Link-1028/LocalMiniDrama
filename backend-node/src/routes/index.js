@@ -25,7 +25,7 @@ function setupRouter(cfg, db, log) {
   const drama = dramaRoutes(db, cfg, log);
   const task = taskRoutes(db, log);
   const settings = settingsRoutes(cfg, log);
-  const aiConfig = aiConfigRoutes(db, log);
+  const aiConfig = aiConfigRoutes(db, log, cfg);
   const prop = propRoutes(db, log);
   const stub = stubRoutes(db, cfg, log);
 
@@ -69,6 +69,7 @@ function setupRouter(cfg, db, log) {
   r.get('/ai-configs', aiConfig.list);
   r.post('/ai-configs', aiConfig.create);
   r.post('/ai-configs/test', aiConfig.testConnection);
+  r.get('/ai-configs/vendor-lock', aiConfig.vendorLock);  // 必须在 /:id 之前
   r.get('/ai-configs/:id', aiConfig.get);
   r.put('/ai-configs/:id', aiConfig.update);
   r.delete('/ai-configs/:id', aiConfig.delete);

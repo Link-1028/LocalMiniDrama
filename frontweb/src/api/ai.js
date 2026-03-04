@@ -18,5 +18,8 @@ export const aiAPI = {
   },
   testConnection(body) {
     return request.post('/ai-configs/test', body)
+  },
+  getVendorLock() {
+    return request.get('/ai-configs/vendor-lock')
   }
 }

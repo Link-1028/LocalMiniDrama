@@ -41,6 +41,23 @@ function ensureBackendCwd(backendCwd) {
   if (!fs.existsSync(configPath) && fs.existsSync(examplePath)) {
     fs.copyFileSync(examplePath, configPath);
   }
+
+  // 每次启动时，将内置 example 中的 vendor_lock 节强制同步到用户 config.yaml，
+  // 确保打包时配置的锁定策略对所有用户生效，不受首次安装后遗留旧配置影响。
+  const bundledExample = fs.existsSync(sourceExample) ? sourceExample : (fs.existsSync(examplePath) ? examplePath : null);
+  if (bundledExample && fs.existsSync(configPath)) {
+    try {
+      const yaml = require('js-yaml');
+      const userCfg = yaml.load(fs.readFileSync(configPath, 'utf8')) || {};
+      const exampleCfg = yaml.load(fs.readFileSync(bundledExample, 'utf8')) || {};
+      if (exampleCfg.vendor_lock !== undefined) {
+        userCfg.vendor_lock = exampleCfg.vendor_lock;
+        fs.writeFileSync(configPath, yaml.dump(userCfg, { lineWidth: -1 }), 'utf8');
+      }
+    } catch (e) {
+      console.warn('[config] Failed to sync vendor_lock from bundled example:', e.message);
+    }
+  }
 }
 
 function getWebDistPath() {

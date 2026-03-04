@@ -2,7 +2,10 @@
   <div class="film-list">
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo">LocalMiniDrama.ai</h1>
+        <h1 class="logo">
+          <span class="logo-main">本地短剧助手</span>
+          <span class="logo-sub">LocalMiniDrama</span>
+        </h1>
         <!-- 公共资源库（左侧，靛紫调） -->
         <div class="header-library">
           <el-button class="btn-library" @click="showCharLibrary = true">
@@ -792,13 +795,23 @@ onMounted(() => {
 <style scoped>
 .film-list {
   min-height: 100vh;
-  background: #0f0f12;
+  background: #08080d;
   color: #e4e4e7;
+  background-image:
+    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.1) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 10% 80%, rgba(79, 70, 229, 0.08) 0%, transparent 60%);
 }
 .header {
-  background: #18181b;
-  border-bottom: 1px solid #27272a;
+  background: rgba(12, 12, 18, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.18);
   padding: 12px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 0 rgba(99, 102, 241, 0.08), 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 .header-inner {
   max-width: min(1400px, 96vw);
@@ -809,10 +822,30 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .logo {
-  font-size: 1.25rem;
-  font-weight: 600;
   margin: 0;
-  color: #fafafa;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+}
+.logo-main {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 50%, #f0abfc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.35));
+}
+.logo-sub {
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: #6d6d7a;
+  -webkit-text-fill-color: #6d6d7a;
+  filter: none;
 }
 .page-title {
   color: #a1a1aa;
@@ -841,6 +874,16 @@ onMounted(() => {
   --el-button-hover-text-color: #c7d2fe;
   --el-button-active-bg-color: rgba(99, 102, 241, 0.3);
   --el-button-active-border-color: rgba(99, 102, 241, 0.7);
+}
+html.light .btn-library {
+  --el-button-bg-color: rgba(79, 70, 229, 0.08);
+  --el-button-border-color: rgba(79, 70, 229, 0.3);
+  --el-button-text-color: #3730a3;
+  --el-button-hover-bg-color: rgba(79, 70, 229, 0.14);
+  --el-button-hover-border-color: rgba(79, 70, 229, 0.5);
+  --el-button-hover-text-color: #312e81;
+  --el-button-active-bg-color: rgba(79, 70, 229, 0.2);
+  --el-button-active-border-color: rgba(79, 70, 229, 0.65);
 }
 
 /* 主题切换按钮 */
@@ -873,12 +916,12 @@ html.light .btn-theme {
   transition: all 0.2s;
 }
 html.light .btn-wechat {
-  --el-button-bg-color: rgba(22, 163, 74, 0.08);
-  --el-button-border-color: rgba(22, 163, 74, 0.3);
-  --el-button-text-color: #16a34a;
-  --el-button-hover-bg-color: rgba(22, 163, 74, 0.15);
-  --el-button-hover-border-color: rgba(22, 163, 74, 0.5);
-  --el-button-hover-text-color: #15803d;
+  --el-button-bg-color: rgba(21, 128, 61, 0.08);
+  --el-button-border-color: rgba(21, 128, 61, 0.3);
+  --el-button-text-color: #166534;
+  --el-button-hover-bg-color: rgba(21, 128, 61, 0.14);
+  --el-button-hover-border-color: rgba(21, 128, 61, 0.5);
+  --el-button-hover-text-color: #14532d;
 }
 
 /* AI配置按钮 —— 琥珀调 */
@@ -891,6 +934,24 @@ html.light .btn-wechat {
   --el-button-hover-text-color: #fde68a;
   --el-button-active-bg-color: rgba(234, 179, 8, 0.28);
   --el-button-active-border-color: rgba(234, 179, 8, 0.65);
+}
+html.light .btn-settings {
+  --el-button-bg-color: rgba(180, 83, 9, 0.07);
+  --el-button-border-color: rgba(180, 83, 9, 0.28);
+  --el-button-text-color: #92400e;
+  --el-button-hover-bg-color: rgba(180, 83, 9, 0.12);
+  --el-button-hover-border-color: rgba(180, 83, 9, 0.45);
+  --el-button-hover-text-color: #78350f;
+  --el-button-active-bg-color: rgba(180, 83, 9, 0.18);
+  --el-button-active-border-color: rgba(180, 83, 9, 0.6);
+}
+
+/* 导入按钮 —— 亮色模式下提升可读性 */
+html.light .btn-import {
+  --el-button-text-color: #374151;
+  --el-button-border-color: #d1d5db;
+  --el-button-hover-text-color: #1f2937;
+  --el-button-hover-border-color: #9ca3af;
 }
 
 .main {
@@ -917,36 +978,55 @@ html.light .btn-wechat {
 }
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
 }
 .project-card {
   position: relative;
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 12px;
+  background: rgba(24, 24, 30, 0.75);
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  border-radius: 14px;
   padding: 20px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.25s, background 0.25s, transform 0.25s, box-shadow 0.25s;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  overflow: hidden;
+}
+.project-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+  pointer-events: none;
 }
 .project-card:hover {
-  border-color: var(--el-color-primary);
-  background: #1c1c1e;
+  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(28, 28, 36, 0.9);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 /* 操作卡片 */
 .action-card {
   cursor: default;
   border-style: dashed;
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(99, 102, 241, 0.04);
+  border-color: rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: inset 0 0 40px rgba(99, 102, 241, 0.04);
 }
 .action-card:hover {
-  border-color: rgba(99, 102, 241, 0.55);
-  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.65);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.12), inset 0 0 40px rgba(99, 102, 241, 0.06);
+}
+.action-card::before {
+  display: none;
 }
 .action-card-inner {
   width: 100%;
@@ -1165,7 +1245,76 @@ html.light .btn-wechat {
 .library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 
-/* 图片放大预览 */
+/* ===== 亮色模式适配 ===== */
+html.light .film-list {
+  background: #f5f3ff;
+  color: #1e1b4b;
+  background-image:
+    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.1) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.06) 0%, transparent 60%);
+}
+html.light .header {
+  background: rgba(248, 246, 255, 0.88);
+  border-bottom-color: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 1px 0 rgba(99, 102, 241, 0.1), 0 4px 16px rgba(99, 102, 241, 0.06);
+}
+html.light .logo-main {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #9333ea 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.2));
+}
+html.light .logo-sub {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+}
+html.light .project-card {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(199, 210, 254, 0.8);
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.06), 0 2px 12px rgba(0, 0, 0, 0.04);
+  backdrop-filter: none;
+}
+html.light .project-card::before {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.03) 0%, transparent 60%);
+}
+html.light .project-card:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 36px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+html.light .action-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+html.light .action-card:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+html.light .action-card-title { color: #4f46e5; }
+html.light .project-title { color: #1e1b4b; }
+html.light .project-desc { color: #4b5563; }
+html.light .project-meta { color: #6b7280; }
+html.light .example-hint-text { color: #6b7280; }
+html.light .library-item {
+  background: #faf9ff;
+  border-color: #e5e7eb;
+}
+html.light .library-item-name { color: #1e1b4b; }
+html.light .library-item-desc { color: #4b5563; }
+html.light .library-empty { color: #6b7280; }
+html.light .lib-img-thumb {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+html.light .lib-img-empty { color: #9ca3af; }
+html.light .badge-status--draft {
+  background: rgba(107, 114, 128, 0.1);
+  color: #4b5563;
+  border-color: rgba(107, 114, 128, 0.25);
+}
+
+/* ===== 图片放大预览 ===== */
 .image-preview-overlay {
   position: fixed;
   inset: 0;

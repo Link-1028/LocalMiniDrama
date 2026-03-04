@@ -279,7 +279,7 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
     const text = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt + constraintPrompt, {
       model: model || undefined,
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: 32768,
     });
 
     taskService.updateTaskStatus(db, taskId, 'processing', 50, '分镜头生成完成，正在解析结果...');

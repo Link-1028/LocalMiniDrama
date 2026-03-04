@@ -3,7 +3,8 @@
     <el-tabs v-model="activeTab" class="config-tabs">
       <el-tab-pane label="AI 配置" name="configs">
         <div class="tab-content">
-          <div class="content-actions">
+          <!-- 普通模式操作栏 -->
+          <div v-if="!vendorLock.enabled" class="content-actions">
             <el-button type="primary" @click="openAdd">
               <el-icon><Plus /></el-icon>
               添加配置
@@ -26,6 +27,17 @@
               一键配置火山
             </el-button>
           </div>
+          <!-- 锁定模式提示栏 -->
+          <el-alert
+            v-else
+            type="info"
+            :closable="false"
+            class="vendor-lock-tip"
+          >
+            <template #title>
+              <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API Key</b> 和 <b>默认模型</b>。</span>
+            </template>
+          </el-alert>
           <p class="default-tip">每种服务类型仅有一个默认配置：文本用于生成故事；文本生成图片用于角色/场景/道具图；分镜图片生成用于分镜图（支持参考图）；视频用于生成视频。</p>
           <el-table v-loading="loading" :data="list" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="120" />
@@ -51,8 +63,8 @@
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-          <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+          <el-button link type="primary" size="small" @click="openEdit(row)">{{ vendorLock.enabled ? '修改Key' : '编辑' }}</el-button>
+          <el-button v-if="!vendorLock.enabled" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -68,12 +80,35 @@
     <!-- 添加/编辑 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="editingId ? '编辑配置' : '添加配置'"
+      :title="vendorLock.enabled ? '修改 API Key / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
       width="520px"
       :close-on-click-modal="false"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <!-- 锁定模式：只展示 api_key 和 default_model -->
+      <template v-if="vendorLock.enabled">
+        <el-descriptions :column="1" border style="margin-bottom: 16px">
+          <el-descriptions-item label="名称">{{ form.name }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ serviceTypeLabel(form.service_type) }}</el-descriptions-item>
+          <el-descriptions-item label="厂商">{{ form.provider }}</el-descriptions-item>
+        </el-descriptions>
+        <el-form ref="formRef" :model="form" label-width="100px">
+          <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API Key', trigger: 'blur' }]">
+            <template #label><span class="form-label-tip">API Key</span></template>
+            <el-input v-model="form.api_key" type="password" placeholder="输入你的 API 密钥" show-password />
+          </el-form-item>
+          <el-form-item>
+            <template #label><span class="form-label-tip">默认模型</span></template>
+            <el-select v-model="form.default_model" clearable style="width: 100%">
+              <el-option v-for="m in formModelList" :key="m" :label="m" :value="m" />
+            </el-select>
+            <p class="field-tip">实际调用时使用的模型，可从预设列表中选择。</p>
+          </el-form-item>
+        </el-form>
+      </template>
+
+      <!-- 普通模式：完整表单 -->
+      <el-form v-else ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item prop="service_type">
           <template #label>
             <span class="form-label-tip">服务类型
@@ -430,6 +465,7 @@ const activeTab = ref('configs')
 const importFileRef = ref(null)
 const loading = ref(false)
 const list = ref([])
+const vendorLock = ref({ enabled: false, config_file: '' })
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const saving = ref(false)
@@ -891,7 +927,18 @@ async function importConfigs(event) {
   }
 }
 
-onMounted(() => loadList())
+async function loadVendorLock() {
+  try {
+    vendorLock.value = await aiAPI.getVendorLock()
+  } catch (_) {
+    vendorLock.value = { enabled: false, config_file: '' }
+  }
+}
+
+onMounted(() => {
+  loadVendorLock()
+  loadList()
+})
 </script>
 
 <style>
@@ -989,6 +1036,9 @@ code {
   font-size: 13px;
   color: #0369a1;
   line-height: 1.5;
+}
+.vendor-lock-tip {
+  margin-bottom: 16px;
 }
 .model-row { margin-bottom: 4px; }
 .field-tip {

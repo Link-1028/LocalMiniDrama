@@ -3,20 +3,26 @@
     <!-- 顶部 -->
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo" @click="goList">LocalMiniDrama.ai</h1>
+        <h1 class="logo" @click="goList">
+          <span class="logo-main">本地短剧助手</span>
+          <span class="logo-sub">LocalMiniDrama</span>
+        </h1>
+        <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ dramaId ? (store.drama?.title || '项目') : '新建故事' }}</span>
         <el-button v-if="dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
           <el-icon><ArrowLeft /></el-icon>
           返回剧集
         </el-button>
-        <el-button class="btn-theme" :title="isDark ? '切换到白天模式' : '切换到暗色模式'" @click="toggleTheme">
-          <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-          {{ isDark ? '白天' : '暗色' }}
-        </el-button>
-        <el-button class="btn-ai-config" @click="showAiConfigDialog = true">
-          <el-icon><Setting /></el-icon>
-          AI配置
-        </el-button>
+        <div class="header-actions">
+          <el-button class="btn-theme" :title="isDark ? '切换到白天模式' : '切换到暗色模式'" @click="toggleTheme">
+            <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+            {{ isDark ? '白天' : '暗色' }}
+          </el-button>
+          <el-button class="btn-ai-config" @click="showAiConfigDialog = true">
+            <el-icon><Setting /></el-icon>
+            AI配置
+          </el-button>
+        </div>
       </div>
     </header>
 
@@ -3421,12 +3427,32 @@ onMounted(() => {
 .film-create {
   min-height: 100vh;
   background: #0f0f12;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -20%, rgba(120, 60, 220, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(60, 100, 220, 0.12) 0%, transparent 60%);
   color: #e4e4e7;
 }
+html.light .film-create {
+  background: #f5f3ff;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -20%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
+}
 .header {
-  background: #18181b;
-  border-bottom: 1px solid #27272a;
+  background: rgba(18, 18, 22, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.18);
   padding: 12px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
+}
+html.light .header {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: rgba(139, 92, 246, 0.2) !important;
+  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.08) !important;
 }
 .header-inner {
   max-width: min(1400px, 96vw);
@@ -3436,17 +3462,74 @@ onMounted(() => {
   gap: 16px;
 }
 .logo {
-  font-size: 1.25rem;
-  font-weight: 600;
   margin: 0;
-  color: #fafafa;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+  transition: filter 0.3s;
 }
+.logo:hover { filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.5)); }
+.logo-main {
+  font-size: 1.1rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #c4b5fd 0%, #818cf8 50%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.logo-sub {
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: #6d6d7a;
+  -webkit-text-fill-color: #6d6d7a;
+}
+html.light .logo-main {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+html.light .logo-sub {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+}
+.breadcrumb-sep {
+  color: #3f3f46;
+  font-size: 1rem;
+  font-weight: 300;
+  flex-shrink: 0;
+  user-select: none;
+}
+html.light .breadcrumb-sep { color: #d1d5db; }
 .page-title {
+  font-size: 0.88rem;
+  font-weight: 500;
   color: #a1a1aa;
-  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 10px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html.light .page-title {
+  color: #6b7280;
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.15);
 }
 .btn-back-drama {
+  flex-shrink: 0;
+}
+.header-actions {
   margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .btn-theme {
   --el-button-bg-color: rgba(148, 163, 184, 0.1);
@@ -3475,14 +3558,21 @@ html.light .btn-theme {
   flex-direction: column;
   gap: 2px;
   padding: 4px 0 12px;
-  background: rgba(24, 24, 27, 0.95);
-  border-radius: 8px;
-  border: 1px solid #27272a;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(18, 18, 22, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(139, 92, 246, 0.05);
   width: 140px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
   transition: width 0.2s ease, padding 0.2s ease;
+}
+html.light .quick-nav {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(139, 92, 246, 0.18);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.1);
 }
 .quick-nav.collapsed {
   width: 36px;
@@ -3570,16 +3660,34 @@ html.light .btn-theme {
   margin-bottom: 24px;
 }
 .card {
-  background: #18181b;
-  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
   padding: 20px;
-  border: 1px solid #27272a;
+  border: 1px solid rgba(63, 63, 70, 0.7);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.card:hover {
+  border-color: rgba(139, 92, 246, 0.2);
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.25);
+}
+html.light .card {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(139, 92, 246, 0.12);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.06);
+}
+html.light .card:hover {
+  border-color: rgba(139, 92, 246, 0.25);
+  box-shadow: 0 6px 28px rgba(139, 92, 246, 0.1);
 }
 .section-title {
   font-size: 1.1rem;
   margin: 0 0 4px;
   color: #fafafa;
 }
+html.light .section-title { color: #18181b; }
 .one-click-actions {
   display: flex;
   align-items: center;
@@ -3857,14 +3965,15 @@ html.light .resource-block-title {
 
 /* 亮色模式：资源卡片 */
 html.light .asset-item {
-  background: #ffffff;
-  border: 1px solid #e4e7ed;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.07);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(139, 92, 246, 0.12);
+  box-shadow: 0 2px 10px rgba(139, 92, 246, 0.06);
 }
 html.light .asset-item:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-1px);
-  transition: box-shadow 0.2s, transform 0.2s;
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.12);
+  border-color: rgba(139, 92, 246, 0.3);
+  transform: translateY(-2px);
+  transition: box-shadow 0.25s, transform 0.2s, border-color 0.25s;
 }
 html.light .asset-cover {
   background: #f3f4f6;
@@ -3895,11 +4004,27 @@ html.light .empty-tip {
   align-items: stretch;
   gap: 0;
   margin-bottom: 20px;
-  background: #1c1c1e;
-  border-radius: 10px;
-  border: 1px solid #27272a;
+  background: rgba(28, 28, 30, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  border: 1px solid rgba(63, 63, 70, 0.6);
   overflow: hidden;
   position: relative;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.storyboard-row:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+html.light .storyboard-row {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(139, 92, 246, 0.12);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.06);
+}
+html.light .storyboard-row:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.1);
 }
 .storyboard-row:last-child { margin-bottom: 0; }
 .sb-num-badge {

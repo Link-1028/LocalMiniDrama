@@ -62,6 +62,14 @@
             @selection-change="onSelectionChange"
           >
             <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" />
+            <el-table-column prop="name" label="名称" min-width="130" />
+            <el-table-column prop="provider" label="提供商" width="96" />
+            <el-table-column prop="base_url" label="Base URL" min-width="170" show-overflow-tooltip />
+            <el-table-column prop="default_model" label="默认模型" min-width="130" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.default_model || (Array.isArray(row.model) && row.model[0]) || '—' }}
+              </template>
+            </el-table-column>
             <el-table-column prop="service_type" label="类型" width="148">
               <template #default="{ row }">
                 <span :class="['type-badge', 'type-' + row.service_type]">
@@ -73,14 +81,6 @@
                   </el-icon>
                   {{ serviceTypeLabel(row.service_type) }}
                 </span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="name" label="名称" min-width="130" />
-            <el-table-column prop="provider" label="提供商" width="96" />
-            <el-table-column prop="base_url" label="Base URL" min-width="170" show-overflow-tooltip />
-            <el-table-column prop="default_model" label="默认模型" min-width="130" show-overflow-tooltip>
-              <template #default="{ row }">
-                {{ row.default_model || (Array.isArray(row.model) && row.model[0]) || '—' }}
               </template>
             </el-table-column>
             <el-table-column prop="is_default" label="默认" width="60">

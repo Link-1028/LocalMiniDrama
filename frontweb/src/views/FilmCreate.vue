@@ -31,33 +31,54 @@
       <div class="nav-toggle" :title="navCollapsed ? '展开导航' : '收起导航'" @click="navCollapsed = !navCollapsed">
         <el-icon><ArrowLeft v-if="!navCollapsed" /><ArrowRight v-else /></el-icon>
       </div>
-      <div class="nav-item" @click="scrollToTop">
-        <span class="nav-label">顶部</span>
+
+      <!-- 步骤列表 -->
+      <div class="nav-steps">
+        <div
+          v-for="(step, idx) in navSteps"
+          :key="step.key"
+          class="nav-step"
+          :class="['status-' + step.status]"
+          @click="scrollToAnchor(step.anchor)"
+        >
+          <!-- 左侧连接线 -->
+          <div class="step-connector-wrap">
+            <div v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
+            <div
+              class="step-dot"
+              :class="['dot-' + step.status]"
+            >
+              <el-icon v-if="step.status === 'done'" class="dot-icon"><Check /></el-icon>
+              <el-icon v-else-if="step.status === 'generating'" class="dot-icon spin"><Loading /></el-icon>
+              <span v-else class="dot-num">{{ idx + 1 }}</span>
+            </div>
+            <div v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
+          </div>
+
+          <!-- 右侧文字 + 状态徽章 -->
+          <div class="step-body">
+            <span class="step-label">{{ step.label }}</span>
+            <span v-if="step.count > 0 && step.status !== 'done'" class="step-count">{{ step.count }}</span>
+            <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成">
+              <el-icon><WarningFilled /></el-icon>
+            </span>
+            <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中">
+              <el-icon class="spin"><Loading /></el-icon>
+            </span>
+          </div>
+        </div>
       </div>
-      <div class="nav-item" @click="scrollToAnchor('anchor-script')">
-        <span class="nav-label">剧本</span>
-      </div>
-      <div class="nav-item" @click="scrollToAnchor('anchor-characters')">
-        <span class="nav-label">角色</span>
-      </div>
-      <div class="nav-item" @click="scrollToAnchor('anchor-props')">
-        <span class="nav-label">道具</span>
-      </div>
-      <div class="nav-item" @click="scrollToAnchor('anchor-scenes')">
-        <span class="nav-label">场景</span>
-      </div>
-      
-      <div class="nav-group">
-        <div class="nav-item" @click="scrollToAnchor('anchor-storyboard')">
-          <span class="nav-expand-icon" @click.stop="storyboardMenuExpanded = !storyboardMenuExpanded">
-            <el-icon><Minus v-if="storyboardMenuExpanded" /><Plus v-else /></el-icon>
-          </span>
-          <span class="nav-label">分镜</span>
+
+      <!-- 分镜子列表 -->
+      <div v-if="!navCollapsed && storyboards.length > 0" class="nav-group">
+        <div class="nav-sub-toggle" @click="storyboardMenuExpanded = !storyboardMenuExpanded">
+          <el-icon><Minus v-if="storyboardMenuExpanded" /><Plus v-else /></el-icon>
+          <span>分镜列表</span>
         </div>
         <div v-show="storyboardMenuExpanded" class="nav-sub-list">
-          <div 
-            v-for="(sb, i) in storyboards" 
-            :key="sb.id" 
+          <div
+            v-for="(sb, i) in storyboards"
+            :key="sb.id"
             class="nav-sub-item"
             :title="sb.title || '分镜 ' + (i + 1)"
             @click="scrollToAnchor('sb-' + sb.id)"
@@ -65,10 +86,6 @@
             {{ i + 1 }}. {{ sb.title || '分镜' }}
           </div>
         </div>
-      </div>
-      
-      <div class="nav-item" @click="scrollToAnchor('anchor-video')">
-        <span class="nav-label">视频</span>
       </div>
     </nav>
 
@@ -1239,7 +1256,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete } from '@element-plus/icons-vue'
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { dramaAPI } from '@/api/drama'
@@ -1420,6 +1437,69 @@ const scenesBlockCollapsed = ref(false)
 // 分镜行内编辑状态（按 storyboard id 存储）
 const storyboardMenuExpanded = ref(false)
 const navCollapsed = ref(false)
+
+/** 左侧导航各步骤状态 */
+const navSteps = computed(() => {
+  // 剧本
+  const hasScript = !!(scriptContent?.value?.trim())
+  const scriptStatus = (storyGenerating.value || scriptGenerating.value)
+    ? 'generating'
+    : hasScript ? 'done' : 'pending'
+
+  // 角色
+  const charList = characters.value || []
+  const charDone = charList.length > 0 && charList.every(c => c.image_url)
+  const charGen = charactersGenerating.value || generatingCharIds.size > 0
+  const charStatus = charGen ? 'generating' : charDone ? 'done' : charList.length > 0 ? 'partial' : 'pending'
+
+  // 道具
+  const propList = props.value || []
+  const propDone = propList.length > 0 && propList.every(p => p.image_url)
+  const propGen = propsExtracting.value || generatingPropIds.size > 0
+  const propStatus = propGen ? 'generating' : propDone ? 'done' : propList.length > 0 ? 'partial' : 'pending'
+
+  // 场景
+  const sceneList = scenes.value || []
+  const sceneDone = sceneList.length > 0 && sceneList.every(s => s.image_url)
+  const sceneGen = scenesExtracting.value || generatingSceneIds.size > 0
+  const sceneStatus = sceneGen ? 'generating' : sceneDone ? 'done' : sceneList.length > 0 ? 'partial' : 'pending'
+
+  // 分镜脚本
+  const sbList = storyboards.value || []
+  const sbScriptDone = sbList.length > 0
+  const sbScriptGen = storyboardGenerating.value
+  const sbScriptStatus = sbScriptGen ? 'generating' : sbScriptDone ? 'done' : 'pending'
+
+  // 分镜图
+  const sbImgDone = sbList.length > 0 && sbList.every(sb => {
+    const imgs = sbImages.value[sb.id]
+    return imgs && imgs.length > 0
+  })
+  const sbImgGen = generatingSbImageIds.size > 0 || batchImageRunning.value
+  const sbImgStatus = sbImgGen ? 'generating' : sbImgDone ? 'done' : sbList.length > 0 ? 'partial' : 'pending'
+
+  // 视频
+  const sbVideoAllDone = sbList.length > 0 && sbList.every(sb => {
+    const vids = sbVideos.value[sb.id]
+    return vids && vids.length > 0
+  })
+  const sbVideoSome = sbList.some(sb => {
+    const vids = sbVideos.value[sb.id]
+    return vids && vids.length > 0
+  })
+  const sbVideoGen = batchVideoRunning.value || !!generatingSbVideoId.value
+  const videoStatus = sbVideoGen ? 'generating' : sbVideoAllDone ? 'done' : sbVideoSome ? 'partial' : 'pending'
+
+  return [
+    { key: 'script',   label: '故事剧本',   anchor: 'anchor-script',     status: scriptStatus,    count: hasScript ? 1 : 0 },
+    { key: 'chars',    label: '角色',        anchor: 'anchor-characters', status: charStatus,      count: charList.length },
+    { key: 'props',    label: '道具',        anchor: 'anchor-props',      status: propStatus,      count: propList.length },
+    { key: 'scenes',   label: '场景',        anchor: 'anchor-scenes',     status: sceneStatus,     count: sceneList.length },
+    { key: 'sb',       label: '分镜脚本',   anchor: 'anchor-storyboard', status: sbScriptStatus,  count: sbList.length },
+    { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard', status: sbImgStatus,     count: sbList.length },
+    { key: 'video',    label: '分镜视频',   anchor: 'anchor-video',      status: videoStatus,     count: 0 },
+  ]
+})
 const sbCharacterIds = ref({})  // sbId -> number[] 多选角色
 const sbPropIds = ref({})       // sbId -> number[] 多选物品
 const sbSceneId = ref({})
@@ -4042,38 +4122,37 @@ html.light .btn-theme {
   --el-button-hover-border-color: rgba(99, 102, 241, 0.5);
   --el-button-hover-text-color: #4f46e5;
 }
-/* 左侧快捷目录 */
+/* ===== 左侧快捷目录 ===== */
 .quick-nav {
   position: fixed;
-  left: 20px;
+  left: 16px;
   top: 100px;
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 0 12px;
-  background: rgba(18, 18, 22, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 12px;
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(139, 92, 246, 0.05);
-  width: 140px;
+  padding: 6px 0 10px;
+  background: rgba(15, 15, 20, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(139, 92, 246, 0.06);
+  width: 158px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-  transition: width 0.2s ease, padding 0.2s ease;
+  overflow-x: hidden;
+  transition: width 0.22s ease, padding 0.22s ease;
 }
 html.light .quick-nav {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(139, 92, 246, 0.18);
-  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.1);
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(139, 92, 246, 0.2);
+  box-shadow: 0 8px 28px rgba(139, 92, 246, 0.12);
 }
 .quick-nav.collapsed {
   width: 36px;
-  overflow: hidden;
   padding: 4px 0;
 }
-.quick-nav.collapsed .nav-item,
+.quick-nav.collapsed .nav-steps,
 .quick-nav.collapsed .nav-group {
   display: none;
 }
@@ -4081,69 +4160,189 @@ html.light .quick-nav {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
+  height: 26px;
   cursor: pointer;
   color: #52525b;
   transition: color 0.15s, background 0.15s;
   border-radius: 6px;
-  margin: 0 4px 2px;
+  margin: 0 6px 4px;
   flex-shrink: 0;
 }
-.nav-toggle:hover {
-  color: #e4e4e7;
-  background: rgba(255, 255, 255, 0.08);
-}
-.nav-item {
-  padding: 8px 16px;
-  cursor: pointer;
-  color: #a1a1aa;
-  font-size: 0.9rem;
-  transition: all 0.2s;
+.nav-toggle:hover { color: #e4e4e7; background: rgba(255,255,255,0.07); }
+html.light .nav-toggle:hover { color: #374151; background: rgba(0,0,0,0.05); }
+
+/* ─── Steps ─── */
+.nav-steps {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  padding: 0 10px 0 8px;
+}
+.nav-step {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 2px 4px 2px 0;
+  transition: background 0.18s;
   user-select: none;
 }
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+.nav-step:hover { background: rgba(255,255,255,0.05); }
+html.light .nav-step:hover { background: rgba(0,0,0,0.04); }
+
+/* connector column */
+.step-connector-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
 }
-.nav-label {
+.step-line {
+  width: 2px;
   flex: 1;
+  min-height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 1px;
+  transition: background 0.3s;
 }
-.nav-expand-icon {
+html.light .step-line { background: rgba(0,0,0,0.1); }
+.step-line.filled { background: rgba(34, 197, 94, 0.5); }
+
+/* dot */
+.step-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 4px;
-  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  transition: all 0.25s;
+  border: 2px solid transparent;
+}
+.dot-pending {
+  background: rgba(63,63,70,0.7);
+  border-color: rgba(113,113,122,0.4);
   color: #71717a;
-  cursor: pointer;
-  transition: background 0.2s;
 }
-.nav-expand-icon:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #e4e4e7;
+html.light .dot-pending {
+  background: rgba(229,231,235,0.8);
+  border-color: rgba(156,163,175,0.5);
+  color: #9ca3af;
 }
-.nav-sub-list {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 4px 0;
+.dot-partial {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #f59e0b;
 }
-.nav-sub-item {
-  padding: 6px 12px 6px 36px;
-  font-size: 0.8rem;
-  color: #71717a;
-  cursor: pointer;
+.dot-generating {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.7);
+  color: #a78bfa;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+}
+.dot-done {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.7);
+  color: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.25);
+}
+.dot-icon { font-size: 11px; }
+.dot-num { font-size: 10px; line-height: 1; }
+
+/* step body */
+.step-body {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  padding: 3px 0;
+  min-width: 0;
+}
+.step-label {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a1a1aa;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: color 0.2s;
 }
-.nav-sub-item:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+html.light .step-label { color: #6b7280; }
+.nav-step:hover .step-label { color: #e4e4e7; }
+html.light .nav-step:hover .step-label { color: #111827; }
+.status-done .step-label { color: #86efac; }
+html.light .status-done .step-label { color: #16a34a; }
+.status-generating .step-label { color: #c4b5fd; }
+html.light .status-generating .step-label { color: #7c3aed; }
+.status-partial .step-label { color: #fcd34d; }
+html.light .status-partial .step-label { color: #d97706; }
+
+.step-count {
+  font-size: 10px;
+  color: #71717a;
+  background: rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 0 5px;
+  flex-shrink: 0;
 }
+html.light .step-count { background: rgba(0,0,0,0.06); color: #9ca3af; }
+
+.step-badge {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.partial-badge { color: #f59e0b; }
+.gen-badge { color: #a78bfa; }
+
+/* spin animation */
+@keyframes navSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin { animation: navSpin 1s linear infinite; display: inline-flex; }
+
+/* sub-toggle & sub-list */
+.nav-group { margin-top: 4px; }
+.nav-sub-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 11px;
+  color: #71717a;
+  cursor: pointer;
+  transition: color 0.15s;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+html.light .nav-sub-toggle { border-top-color: rgba(0,0,0,0.07); color: #9ca3af; }
+.nav-sub-toggle:hover { color: #e4e4e7; }
+html.light .nav-sub-toggle:hover { color: #374151; }
+.nav-sub-list {
+  background: rgba(0,0,0,0.18);
+  padding: 3px 0;
+  border-radius: 0 0 6px 6px;
+}
+html.light .nav-sub-list { background: rgba(0,0,0,0.04); }
+.nav-sub-item {
+  padding: 5px 12px 5px 28px;
+  font-size: 11px;
+  color: #71717a;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+html.light .nav-sub-item { color: #9ca3af; }
+.nav-sub-item:hover { color: #fff; background: rgba(255,255,255,0.05); }
+html.light .nav-sub-item:hover { color: #111827; background: rgba(0,0,0,0.04); }
 
 .main {
   max-width: min(1400px, 96vw);

@@ -165,6 +165,20 @@ async function generateSingleFrame(db, log, cfg, sb, scene, characterNames, mode
   const userKey = frameKind === 'first' ? 'frame_info' : frameKind === 'key' ? 'key_frame_info' : 'last_frame_info';
   const systemPrompt = promptI18n[systemKey](cfg);
   const userPrompt = promptI18n.formatUserPrompt(cfg, userKey, context);
+
+  // ── 调试日志：打印完整提示词，方便确认角度/视角是否正确注入 ──
+  log.info('[帧提示词] ===== generateSingleFrame DEBUG =====', {
+    frame_kind: frameKind,
+    storyboard_id: sb?.id,
+    angle: sb?.angle,
+    shot_type: sb?.shot_type,
+    movement: sb?.movement,
+  });
+  log.info('[帧提示词] CONTEXT (角色/场景/角度上下文):\n' + context);
+  log.info('[帧提示词] SYSTEM PROMPT:\n' + systemPrompt);
+  log.info('[帧提示词] USER PROMPT:\n' + userPrompt);
+  log.info('[帧提示词] ==========================================');
+
   let aiResponse;
   try {
     aiResponse = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, { model: model || undefined, max_tokens: 800 });
@@ -180,11 +194,17 @@ async function generateSingleFrame(db, log, cfg, sb, scene, characterNames, mode
           : '镜头结束画面，展示最终状态和结果';
     return { prompt, description: desc };
   }
+  log.info('[帧提示词] AI RAW RESPONSE:\n' + (aiResponse || '(empty)'));
   const parsed = parseFramePromptJSON(log, aiResponse);
-  if (parsed) return parsed;
+  if (parsed) {
+    log.info('[帧提示词] PARSED RESULT prompt:\n' + parsed.prompt);
+    return parsed;
+  }
   const suffix = frameKind === 'first' ? 'first frame, static shot' : frameKind === 'key' ? 'key frame, dynamic action' : 'last frame, final state';
+  const fallback = buildFallbackPrompt(cfg, scene, suffix);
+  log.warn('[帧提示词] JSON 解析失败，使用 FALLBACK prompt:\n' + fallback);
   return {
-    prompt: buildFallbackPrompt(cfg, scene, suffix),
+    prompt: fallback,
     description: frameKind === 'last' ? '镜头结束画面，展示最终状态和结果' : frameKind === 'key' ? '动作高潮瞬间，展示关键动作' : '镜头开始的静态画面，展示初始状态',
   };
 }

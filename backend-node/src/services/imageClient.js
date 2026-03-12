@@ -884,6 +884,7 @@ async function callImageApi(db, log, opts) {
   log.info('[图生] callImageApi 路由', {
     image_gen_id,
     protocol,
+    api_protocol_raw: config.api_protocol || '(empty→auto)',
     provider,
     model,
     size,

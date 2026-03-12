@@ -1,7 +1,52 @@
 // 与 Go UploadService 对齐：保存到 local_path，返回 url / local_path
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const { randomUUID } = require('crypto');
+
+/**
+ * 用 Node.js 原生 http/https 模块下载 URL 到 Buffer。
+ * 比 native fetch 在 Electron 打包环境中更可靠，支持自动跟随 301/302 重定向（最多 5 次）。
+ */
+function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) return reject(new Error('Too many redirects'));
+    const parsed = new URL(url);
+    const mod = parsed.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; LocalMiniDrama/1.0)',
+        'Accept': 'image/*,*/*',
+      },
+      timeout: timeoutMs,
+    };
+    const req = mod.request(options, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const location = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : `${parsed.protocol}//${parsed.host}${res.headers.location}`;
+        res.resume();
+        return resolve(downloadBufferViaNodeHttp(location, timeoutMs, redirectCount + 1));
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers['content-type'] || '' }));
+      res.on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error(`Download timeout after ${timeoutMs}ms`)); });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -48,14 +93,27 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
       buffer = Buffer.from(match[2], 'base64');
       ext = match[1] === 'jpeg' ? 'jpg' : match[1];
     } else {
-      const res = await fetch(imageUrl, { method: 'GET' });
-      if (!res.ok) {
-        log.warn('downloadImageToLocal: fetch failed', { status: res.status });
+      // 使用 Node.js 原生 http/https 模块下载，比 native fetch 在 Electron 打包环境更可靠
+      // 失败自动重试最多 3 次
+      let lastErr;
+      let contentType = '';
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const result = await downloadBufferViaNodeHttp(imageUrl, 30000);
+          buffer = result.buffer;
+          contentType = result.contentType;
+          break;
+        } catch (e) {
+          lastErr = e;
+          log.warn('downloadImageToLocal: 下载失败，准备重试', { category, attempt, error: e.message, url: imageUrl.slice(0, 100) });
+          if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+      }
+      if (!buffer) {
+        log.warn('downloadImageToLocal: 3次重试均失败', { category, error: lastErr?.message });
         return null;
       }
-      const contentType = res.headers.get('content-type') || '';
       ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
-      buffer = Buffer.from(await res.arrayBuffer());
     }
     const name = `${prefix}${prefix ? '_' : ''}${randomUUID().slice(0, 8)}.${ext}`;
     const filePath = path.join(categoryPath, name);

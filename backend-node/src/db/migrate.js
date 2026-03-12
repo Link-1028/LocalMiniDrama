@@ -402,6 +402,16 @@ function ensureAllColumns(database) {
     { name: 'proxy_url',  type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
   ]);
+
+  // --- storyboard_characters（分镜与角色库的关联表） ---
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS storyboard_characters (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      storyboard_id  INTEGER NOT NULL,
+      character_id   INTEGER NOT NULL,
+      created_at     TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
 }
 
 /** 对已打开的 database 执行迁移与兜底补列（供 app 启动时调用） */

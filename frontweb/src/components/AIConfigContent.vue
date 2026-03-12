@@ -452,10 +452,11 @@ input_reference = (图片文件，可选)</pre>
         </template>
 
         <!-- 接口地址预览：选择厂商/协议后自动展示，帮助用户核对 -->
-        <div v-if="endpointPreviewInfo" class="endpoint-preview-box">
+        <div v-if="endpointPreviewInfo" class="endpoint-preview-box" :class="{ 'ep-box-gemini': endpointPreviewInfo.isGemini }">
           <div class="ep-preview-header">
             <span>📌 系统将使用以下接口地址</span>
-            <span v-if="endpointPreviewInfo.isAuto && form.service_type !== 'text'" class="ep-auto-badge">自动推断</span>
+            <span v-if="endpointPreviewInfo.isGemini" class="ep-auto-badge ep-badge-gemini">Gemini 固定模式</span>
+            <span v-else-if="endpointPreviewInfo.isAuto && form.service_type !== 'text'" class="ep-auto-badge">自动推断</span>
           </div>
           <div class="ep-row">
             <span class="ep-label">提交地址：</span>
@@ -465,7 +466,10 @@ input_reference = (图片文件，可选)</pre>
             <span class="ep-label">查询地址：</span>
             <code class="ep-url">{{ endpointPreviewInfo.query }}</code>
           </div>
-          <p class="ep-tip">以上为系统推断的实际调用地址（可手动填写上方端点字段来覆盖）</p>
+          <p v-if="endpointPreviewInfo.isGemini" class="ep-tip ep-tip-warn">
+            ⚠️ Gemini 端点由系统根据模型名固定生成，上方「提交端点」和「查询端点」字段对 Gemini 无效，填了也不生效。
+          </p>
+          <p v-else class="ep-tip">以上为系统推断的实际调用地址（可手动填写上方端点字段来覆盖）</p>
         </div>
 
         <el-form-item>
@@ -914,7 +918,9 @@ const endpointPreviewInfo = computed(() => {
     } else if (proto === 'dashscope' || p === 'dashscope' || p === 'qwen_image') {
       submitPath = '/api/v1/services/aigc/multimodal-generation/generation'
     } else if (proto === 'gemini' || p === 'gemini') {
-      submitPath = '/v1beta/models/{model}:generateContent'
+      const m = form.value.default_model || '{模型名}'
+      submitPath = `/v1beta/models/${m}:generateContent?key=***`
+      return { submit: base + submitPath, query: null, isAuto: true, isGemini: true }
     } else if (proto === 'nano_banana' || p === 'nano_banana') {
       submitPath = '/v1/images/generations'  // nano_banana base_url 无 /v1
     } else {
@@ -928,7 +934,13 @@ const endpointPreviewInfo = computed(() => {
     } else if (proto === 'dashscope' || p === 'dashscope') {
       submitPath = '/api/v1/services/aigc/video-generation/video-synthesis'
     } else if (proto === 'gemini' || p === 'gemini') {
-      submitPath = '/v1beta/models/{model}:predictLongRunning'
+      const m = form.value.default_model || '{模型名}'
+      return {
+        submit: `${base}/v1beta/models/${m}:predictLongRunning  （API Key 放 header: x-goog-api-key）`,
+        query: `${base}/v1beta/{operationName}  （operationName 由提交响应返回）`,
+        isAuto: true,
+        isGemini: true
+      }
     } else if (proto === 'vidu' || p === 'vidu') {
       submitPath = '/ent/v2/img2video'
     } else if (proto === 'sora') {
@@ -1309,6 +1321,7 @@ async function importConfigs(event) {
           service_type: cfg.service_type,
           name: cfg.name,
           provider: cfg.provider,
+          api_protocol: cfg.api_protocol || null,
           base_url: cfg.base_url,
           api_key: cfg.api_key || '',
           endpoint: cfg.endpoint || null,
@@ -1661,5 +1674,20 @@ code {
   font-size: 11px;
   color: #909399;
   line-height: 1.4;
+}
+.ep-tip-warn {
+  color: #e6a23c;
+}
+.ep-box-gemini {
+  background: #fffbf0;
+  border-color: #f5dfa0;
+}
+.ep-box-gemini .ep-preview-header {
+  color: #b8860b;
+}
+.ep-badge-gemini {
+  background: #fef6e0;
+  color: #b8860b;
+  border-color: #f0d080;
 }
 </style>

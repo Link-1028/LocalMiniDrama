@@ -792,7 +792,9 @@
 
                 <!-- ② 统一缩略图条：未选中的面板 + 其他已生成图（点击切换主图，不触发上传） -->
                 <div v-if="getStripItems(sb.id).length" class="sb-imgs-strip">
-                  <span class="sb-imgs-strip-hint">历史图（点击设为主图）：</span>
+                  <el-tooltip content="历史图：点击缩略图可设为主图" placement="top" :show-arrow="false">
+                    <el-icon class="sb-strip-hint-icon"><InfoFilled /></el-icon>
+                  </el-tooltip>
                   <div
                     v-for="item in getStripItems(sb.id)"
                     :key="item.key"
@@ -5302,11 +5304,14 @@ html.light .storyboard-row:hover {
   border-top: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
 }
-.sb-imgs-strip-hint {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
+.sb-strip-hint-icon {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  cursor: default;
+  transition: color 0.15s;
+}
+.sb-strip-hint-icon:hover {
+  color: var(--el-color-primary);
 }
 .sb-img-thumb {
   position: relative;

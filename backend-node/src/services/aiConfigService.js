@@ -478,11 +478,12 @@ function applyVendorLock(db, log, cfg) {
       : item.model ? JSON.stringify([item.model]) : '[]';
     db.prepare(
       `INSERT INTO ai_service_configs
-        (service_type, provider, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+        (service_type, provider, api_protocol, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
     ).run(
       item.service_type || 'text',
       item.provider || '',
+      item.api_protocol || '',
       item.name || '',
       item.base_url || '',
       apiKey,
@@ -496,6 +497,9 @@ function applyVendorLock(db, log, cfg) {
       now,
       now
     );
+  }
+  for (const item of configs) {
+    console.log(`[vendor_lock] loaded: service_type=${item.service_type} provider=${item.provider} api_protocol=${item.api_protocol || '(auto)'} endpoint=${item.endpoint || '(auto)'}`);
   }
   console.log(`[vendor_lock] synced ${configs.length} configs from ${configFile}`);
 }

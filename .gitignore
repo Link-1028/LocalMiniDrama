@@ -2,3 +2,4 @@
 .trae
 backend-node/scripts
 backend-node/configs/ai-configs-stary.json
+backend-node/configs/ai-configs-qudao.json

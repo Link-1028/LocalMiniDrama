@@ -823,8 +823,16 @@ async function callVideoApi(db, log, opts) {
   }
   const model = getModelFromConfig(config, preferredModel);
   const provider = (config.provider || '').toLowerCase();
-  // api_protocol ?????????????? provider ??
+  // api_protocol 优先，空时按 provider 名称推断
   const protocol = (config.api_protocol || '').toLowerCase() || inferVideoProtocol(provider);
+  log.info('[视频] 路由协议', {
+    video_gen_id,
+    provider,
+    api_protocol_raw: config.api_protocol || '(empty→auto)',
+    protocol_used: protocol,
+    model,
+    endpoint: config.endpoint || '(auto)',
+  });
 
   if (protocol === 'dashscope') {
     return callDashScopeVideoApi(config, log, {

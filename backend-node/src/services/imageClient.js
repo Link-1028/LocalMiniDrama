@@ -1260,14 +1260,14 @@ async function callImageApi(db, log, opts) {
   }
 
   // doubao-seedream-4-5+ 要求最低 3686400 像素，不足时等比放大
-  const effectiveSize = (isSeedream && size) ? seedreamSize(size) : size;
+  const effectiveSize = (isSeedream && size) ? fixSeedreamSize(size) : size;
 
   const body = {
     model,
     prompt: effectivePrompt,
     // doubao-seedream API 不使用 n，其他 OpenAI 兼容接口保留
     ...(!isSeedream ? { n: 1 } : {}),
-    ...(size ? { size: isSeedream ? fixSeedreamSize(size) : size } : {}),
+    ...(effectiveSize ? { size: effectiveSize } : {}),
     ...(quality ? { quality } : {}),
     // volcengine 原生或 doubao-seedream 模型均需关闭水印（默认为 true）
     ...((isVolc || isSeedream) ? { watermark: false } : {}),

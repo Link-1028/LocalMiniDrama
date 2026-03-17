@@ -128,32 +128,42 @@ function getModelFromConfig(config, preferredModel) {
   return models[0] || 'dall-e-3';
 }
 
-// doubao-seedream-4-5 及更新版本要求最小像素 3686400（=1920×1920）
-// 若传入 size 不足，按宽高比等比放大到满足要求；步长取 8
-const SEEDREAM_MIN_PIXELS = 3686400;
-
-function seedreamSize(size) {
-  if (!size || typeof size !== 'string') return '1920x1920';
-  // 兼容 "WxH" 与 "W*H" 两种写法
-  const s = String(size).trim().toLowerCase().replace(/\*/g, 'x');
-  const match = s.match(/^(\d+)\s*x\s*(\d+)$/);
-  if (!match) return '1920x1920';
-  let w = parseInt(match[1], 10);
-  let h = parseInt(match[2], 10);
-  if (!w || !h) return '1920x1920';
-  if (w * h >= SEEDREAM_MIN_PIXELS) return `${w}x${h}`;
-  // 等比放大，步长 8
-  const scale = Math.sqrt(SEEDREAM_MIN_PIXELS / (w * h));
-  w = Math.max(8, Math.round((w * scale) / 8) * 8);
-  h = Math.max(8, Math.round((h * scale) / 8) * 8);
-  // 四舍五入后仍可能略低，循环补足直到满足最低像素
-  while (w * h < SEEDREAM_MIN_PIXELS) w += 8;
-  return `${w}x${h}`;
-}
-
 // 通义万象 size：格式 "宽*高"，总像素须在 589824(768*768)～1638400(1280*1280) 之间
 const DASHSCOPE_MIN_PIXELS = 589824;
 const DASHSCOPE_MAX_PIXELS = 1638400;
+
+// 火山引擎 Doubao-Seedream-4.5 最低像素要求 3,686,400 (1920*1920)
+// 需要自动将低分辨率请求放大到该标准，保持长宽比
+const SEEDREAM_MIN_PIXELS = 3686400;
+
+function fixSeedreamSize(size) {
+  if (!size || typeof size !== 'string') return '1920x1920'; // 默认使用最低要求 1920x1920
+  // 支持 1024x1024 或 1024*1024 格式，统一解析
+  const s = size.trim().toLowerCase().replace(/\*/g, 'x');
+  const match = s.match(/^(\d+)\s*x\s*(\d+)$/);
+  if (!match) return '1920x1920';
+  
+  let w = parseInt(match[1], 10);
+  let h = parseInt(match[2], 10);
+  if (!w || !h) return '1920x1920';
+  
+  const pixels = w * h;
+  if (pixels >= SEEDREAM_MIN_PIXELS) return `${w}x${h}`; // 已达标，直接用
+  
+  // 需要放大
+  const scale = Math.sqrt(SEEDREAM_MIN_PIXELS / pixels);
+  // 向上取整到 64 的倍数（通常 AI 模型对 64/32/16 对齐有偏好，这里取 64 较稳妥）
+  w = Math.ceil((w * scale) / 64) * 64;
+  h = Math.ceil((h * scale) / 64) * 64;
+  
+  // 二次检查是否因为取整导致略小于标准（虽然 ceil 应该不会，但为了保险）
+  if (w * h < SEEDREAM_MIN_PIXELS) {
+    w += 64;
+    h += 64;
+  }
+  
+  return `${w}x${h}`;
+}
 
 function dashScopeSize(size) {
   if (!size || typeof size !== 'string') return '1280*1280';
@@ -1257,7 +1267,7 @@ async function callImageApi(db, log, opts) {
     prompt: effectivePrompt,
     // doubao-seedream API 不使用 n，其他 OpenAI 兼容接口保留
     ...(!isSeedream ? { n: 1 } : {}),
-    ...(effectiveSize ? { size: effectiveSize } : {}),
+    ...(size ? { size: isSeedream ? fixSeedreamSize(size) : size } : {}),
     ...(quality ? { quality } : {}),
     // volcengine 原生或 doubao-seedream 模型均需关闭水印（默认为 true）
     ...((isVolc || isSeedream) ? { watermark: false } : {}),

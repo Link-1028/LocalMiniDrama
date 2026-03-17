@@ -3,9 +3,66 @@ const taskService = require('./taskService');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const { syncStoryboardCharacters } = require('./imageService');
-const { safeParseAIJSON, extractJsonCandidate, repairTruncatedJsonArray, extractFirstArray } = require('../utils/safeJson');
+const safeJson = require('../utils/safeJson');
+const { safeParseAIJSON, extractJsonCandidate, repairTruncatedJsonArray, extractFirstArray } = safeJson;
 const loadConfig = require('../config').loadConfig;
 const angleService = require('./angleService');
+
+/**
+ * 分镜专用 generateText 包装：
+ * 1. 默认携带 max_tokens:32768，让模型输出更长，减少截断续写次数。
+ * 2. 若 API 立即返回参数错误（HTTP 4xx，且错误体提到 max_tokens/length/token），
+ *    自动降级为不传 max_tokens 重试一次。
+ * 3. 所有尝试均记录日志。
+ */
+const DEFAULT_STORYBOARD_MAX_TOKENS = 32768;
+
+function isMaxTokensParamError(errMsg) {
+  const m = (errMsg || '').toLowerCase();
+  return (
+    m.includes('max_tokens') ||
+    m.includes('max_completion_tokens') ||
+    m.includes('maximum_context_length') ||
+    m.includes('context_length_exceeded') ||
+    m.includes('maximum length') ||
+    m.includes('token limit') ||
+    (m.includes('http 4') && (m.includes('token') || m.includes('length') || m.includes('parameter')))
+  );
+}
+
+async function generateTextForStoryboard(db, log, userPrompt, systemPrompt, options = {}) {
+  const { model, streamCallback, temperature = 0.7 } = options;
+
+  // 第一次尝试：带 max_tokens:32768
+  log.info('Storyboard generateText attempt 1', { model: model || '(default)', max_tokens: DEFAULT_STORYBOARD_MAX_TOKENS });
+  try {
+    const text = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
+      model: model || undefined,
+      temperature,
+      max_tokens: DEFAULT_STORYBOARD_MAX_TOKENS,
+      streamCallback,
+    });
+    return text;
+  } catch (e) {
+    if (isMaxTokensParamError(e.message)) {
+      log.warn('Storyboard generateText: max_tokens rejected by model, retrying without it', {
+        model: model || '(default)',
+        error: e.message.slice(0, 200),
+      });
+      // 第二次尝试：不传 max_tokens，让模型用自己默认值
+      log.info('Storyboard generateText attempt 2 (no max_tokens)', { model: model || '(default)' });
+      const text = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
+        model: model || undefined,
+        temperature,
+        streamCallback,
+      });
+      log.info('Storyboard generateText attempt 2 succeeded');
+      return text;
+    }
+    // 其他错误直接抛出
+    throw e;
+  }
+}
 
 function rowToScene(r) {
   if (!r) return null;
@@ -249,14 +306,32 @@ function insertOneStoryboard(db, episodeIdNum, sb, style, videoRatio, now) {
  */
 function tryIncrementalSave(db, log, episodeIdNum, accumulated, savedNums, style, videoRatio) {
   try {
-    const cleaned = accumulated.trim()
+    let cleaned = accumulated.trim()
       .replace(/^```json\s*/gm, '').replace(/^```\s*/gm, '').replace(/```\s*$/gm, '').trim();
-    const candidate = extractJsonCandidate(cleaned);
+    // 转义字符串字段里的原始换行符，防止 JSON.parse 报 "Unterminated string"
+    cleaned = safeJson.escapeNewlinesInStrings(cleaned);
+    let candidate = extractJsonCandidate(cleaned);
     if (!candidate) return;
-    const repaired = repairTruncatedJsonArray(candidate);
-    if (!repaired) return;
-    let parsed;
-    try { parsed = JSON.parse(repaired); } catch (_) { return; }
+
+    // 如果 AI 将数组包在对象里（如 doubao 的 {"storyboards":[...]}），提取内部数组
+    const innerArray = safeJson.extractWrappedArrayStr(candidate);
+    const arrayCandidate = innerArray || candidate;
+
+    // 策略A：截断修复（找到已完整闭合的顶层元素）
+    let parsed = null;
+    const repaired = repairTruncatedJsonArray(arrayCandidate);
+    if (repaired) {
+      try { parsed = JSON.parse(repaired); } catch (_) {}
+      // 策略B：截断修复 + jsonrepair
+      if (!parsed && safeJson._jsonrepair) {
+        try { parsed = JSON.parse(safeJson._jsonrepair(repaired)); } catch (_) {}
+      }
+    }
+    // 策略C：直接 jsonrepair 整体修复
+    if (!parsed && safeJson._jsonrepair) {
+      try { parsed = JSON.parse(safeJson._jsonrepair(arrayCandidate)); } catch (_) {}
+    }
+    if (!parsed) return;
     const items = Array.isArray(parsed) ? parsed : extractFirstArray(parsed);
     if (!items || items.length === 0) return;
     const now = new Date().toISOString();
@@ -444,22 +519,37 @@ function saveStoryboards(db, log, episodeId, storyboards, cfg, styleOverride, sk
 }
 
 /**
- * 构建续写 prompt：当首次响应被截断时，携带已生成分镜末尾作为上下文，
+ * 构建续写 prompt：当首次响应被截断时，携带已生成分镜完整列表 + 末尾详情作为上下文，
  * 请求 AI 从 lastShotNum+1 继续生成剩余分镜。
+ * 关键：必须把所有已生成分镜的 shot_number + segment_title + title 全部列出，
+ * 防止 AI 因不知道哪些情节已覆盖而重复生成相同内容。
  */
 function buildContinuationPrompt(originalUserPrompt, alreadySaved, lastShotNum, attempt) {
+  // 全量已生成分镜摘要（每行一个，仅 shot_number + segment + title）
+  const allSummary = alreadySaved.map((sb) => {
+    const num = sb.shot_number ?? sb.storyboard_number ?? 0;
+    const seg = (sb.segment_title || '').replace(/"/g, '\\"');
+    const title = (sb.title || '').replace(/"/g, '\\"');
+    return `  ${num}. [${seg}] ${title}`;
+  }).join('\n');
+
+  // 末尾 5 个分镜的详细内容（供衔接用）
   const lastCtx = alreadySaved.slice(-5).map((sb) => {
     const num = sb.shot_number ?? sb.storyboard_number ?? 0;
     const title = (sb.title || '').replace(/"/g, '\\"');
     const loc = (sb.location || '').replace(/"/g, '\\"');
-    const action = (sb.action || '').slice(0, 80).replace(/"/g, '\\"');
+    const action = (sb.action || '').slice(0, 120).replace(/"/g, '\\"');
     return `  {"shot_number": ${num}, "title": "${title}", "location": "${loc}", "action": "${action}"}`;
   }).join(',\n');
 
   return `[续写指令 - 第${attempt}次续写]
 之前的分镜生成因长度限制在 shot_number ${lastShotNum} 处中断，已生成 ${alreadySaved.length} 个分镜。
 
-最后几个已生成的分镜（仅供连贯性参考，不要重复）：
+━━━ 已生成分镜完整列表（绝对不能重复以下内容）━━━
+${allSummary}
+━━━ 列表结束 ━━━
+
+以上所有情节均已覆盖，请勿重复。末尾几个分镜详情供衔接参考：
 [
 ${lastCtx}
 ]
@@ -468,7 +558,8 @@ ${lastCtx}
 要求：
 - 仅返回新增分镜（JSON数组），shot_number 从 ${lastShotNum + 1} 开始递增
 - 格式与之前完全相同，字段保持一致
-- 不要重复已生成的分镜，不要输出任何解释文字
+- 严禁重复已生成列表中的任何情节或场景
+- 不要输出任何解释文字，直接输出 JSON
 
 原始剧本与任务说明：
 ${originalUserPrompt}`;
@@ -495,13 +586,10 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
     const deleteNow = new Date().toISOString();
     db.prepare('UPDATE storyboards SET deleted_at = ? WHERE episode_id = ? AND deleted_at IS NULL').run(deleteNow, episodeIdNum);
 
-    // max_tokens 不在此硬编码，由 AI 配置的 settings.max_tokens 控制（用户可按模型上限自行设置）。
-    // 若用户未配置则不传，让模型使用自身默认值，避免超出不同模型的上限导致 400 错误。
     // 不使用 json_mode：response_format:json_object 要求返回 JSON 对象而非数组，会导致模型包装成
     // {"storyboards":[...]} 或产生乱码 key，改由 extractFirstArray 统一处理任意包装格式。
-    const text = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
+    const text = await generateTextForStoryboard(db, log, userPrompt, systemPrompt, {
       model: model || undefined,
-      temperature: 0.7,
       // 每积累约 400 字符触发一次增量解析，尝试提前保存已完成的分镜
       streamCallback: (accumulated) => {
         if (accumulated.length - streamThrottle < 400) return;
@@ -613,9 +701,8 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
 
       let contText;
       try {
-        contText = await aiClient.generateText(db, log, 'text', contPrompt, systemPrompt, {
+        contText = await generateTextForStoryboard(db, log, contPrompt, systemPrompt, {
           model: model || undefined,
-          temperature: 0.7,
           streamCallback: (accumulated) => {
             if (accumulated.length - streamThrottle < 400) return;
             streamThrottle = accumulated.length;

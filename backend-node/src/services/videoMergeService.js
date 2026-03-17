@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { getFfmpegPath, hasLocalFfmpeg } = require('../utils/ffmpegPath');
+const { getFfmpegPath, getFfprobePath, hasLocalFfmpeg } = require('../utils/ffmpegPath');
 
 function list(db, query) {
   let sql = 'FROM video_merges WHERE deleted_at IS NULL';
@@ -205,8 +205,17 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     }
   }
 
+  const ffmpegAvailable = hasLocalFfmpeg();
+  log.info('Video merge: ffmpeg check', {
+    merge_id: mergeId,
+    has_ffmpeg: ffmpegAvailable,
+    ffmpeg_path: getFfmpegPath(),
+    local_video_count: localPaths.length,
+    cwd: process.cwd(),
+  });
+
   let mergedRelativePath = null;
-  if (localPaths.length > 0 && hasLocalFfmpeg() && localPaths.length <= 100) {
+  if (localPaths.length > 0 && ffmpegAvailable && localPaths.length <= 100) {
     const mergedDir = path.join(storageRoot, 'videos', 'merged');
     if (!fs.existsSync(mergedDir)) fs.mkdirSync(mergedDir, { recursive: true });
     const outputFileName = `merged_${Date.now()}.mp4`;

@@ -73,6 +73,50 @@ function ensureBackendCwd(backendCwd) {
   }
 }
 
+/**
+ * 首次启动时，将打包内置的 ffmpeg 自动复制到 userData/backend/tools/ffmpeg/。
+ * 来源：process.resourcesPath/ffmpeg/（由 electron-builder extraResources 写入）。
+ * 已存在则跳过，不会重复覆盖，也不影响用户手动替换版本。
+ */
+function ensureFfmpeg(backendCwd) {
+  if (!app.isPackaged) return;
+  const isWin = process.platform === 'win32';
+  const ffmpegName = isWin ? 'ffmpeg.exe' : 'ffmpeg';
+  const ffprobeName = isWin ? 'ffprobe.exe' : 'ffprobe';
+
+  const destDir = path.join(backendCwd, 'tools', 'ffmpeg');
+  const destFfmpeg = path.join(destDir, ffmpegName);
+
+  // 已存在则跳过（支持用户手动替换）
+  if (fs.existsSync(destFfmpeg)) {
+    console.log('[ffmpeg] Already exists at', destFfmpeg);
+    return;
+  }
+
+  const srcDir = path.join(process.resourcesPath, 'ffmpeg');
+  const srcFfmpeg = path.join(srcDir, ffmpegName);
+  if (!fs.existsSync(srcFfmpeg)) {
+    console.log('[ffmpeg] Bundled ffmpeg not found, skipping auto-extract. Expected:', srcFfmpeg);
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcFfmpeg, destFfmpeg);
+    if (!isWin) fs.chmodSync(destFfmpeg, 0o755);
+
+    const srcFfprobe = path.join(srcDir, ffprobeName);
+    if (fs.existsSync(srcFfprobe)) {
+      const destFfprobe = path.join(destDir, ffprobeName);
+      fs.copyFileSync(srcFfprobe, destFfprobe);
+      if (!isWin) fs.chmodSync(destFfprobe, 0o755);
+    }
+    console.log('[ffmpeg] Auto-extracted to', destDir);
+  } catch (e) {
+    console.warn('[ffmpeg] Auto-extract failed:', e.message);
+  }
+}
+
 function getWebDistPath() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'frontweb', 'dist');
@@ -122,6 +166,7 @@ function createWindow(port) {
 async function startBackend() {
   const backendCwd = getBackendCwd();
   ensureBackendCwd(backendCwd);
+  ensureFfmpeg(backendCwd);
   process.env.WEB_DIST_PATH = getWebDistPath();
   if (app.isPackaged) {
     process.env.LOG_FILE = path.join(backendCwd, 'logs', 'app.log');

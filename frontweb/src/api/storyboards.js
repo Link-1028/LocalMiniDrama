@@ -24,5 +24,8 @@ export const storyboardsAPI = {
   },
   batchInferParams(episodeId, overwrite = false) {
     return request.post('/storyboards/batch-infer-params', { episode_id: episodeId, overwrite })
+  },
+  upscale(id) {
+    return request.post(`/storyboards/${id}/upscale`, {})
   }
 }

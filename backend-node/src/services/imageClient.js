@@ -128,6 +128,29 @@ function getModelFromConfig(config, preferredModel) {
   return models[0] || 'dall-e-3';
 }
 
+// doubao-seedream-4-5 及更新版本要求最小像素 3686400（=1920×1920）
+// 若传入 size 不足，按宽高比等比放大到满足要求；步长取 8
+const SEEDREAM_MIN_PIXELS = 3686400;
+
+function seedreamSize(size) {
+  if (!size || typeof size !== 'string') return '1920x1920';
+  // 兼容 "WxH" 与 "W*H" 两种写法
+  const s = String(size).trim().toLowerCase().replace(/\*/g, 'x');
+  const match = s.match(/^(\d+)\s*x\s*(\d+)$/);
+  if (!match) return '1920x1920';
+  let w = parseInt(match[1], 10);
+  let h = parseInt(match[2], 10);
+  if (!w || !h) return '1920x1920';
+  if (w * h >= SEEDREAM_MIN_PIXELS) return `${w}x${h}`;
+  // 等比放大，步长 8
+  const scale = Math.sqrt(SEEDREAM_MIN_PIXELS / (w * h));
+  w = Math.max(8, Math.round((w * scale) / 8) * 8);
+  h = Math.max(8, Math.round((h * scale) / 8) * 8);
+  // 四舍五入后仍可能略低，循环补足直到满足最低像素
+  while (w * h < SEEDREAM_MIN_PIXELS) w += 8;
+  return `${w}x${h}`;
+}
+
 // 通义万象 size：格式 "宽*高"，总像素须在 589824(768*768)～1638400(1280*1280) 之间
 const DASHSCOPE_MIN_PIXELS = 589824;
 const DASHSCOPE_MAX_PIXELS = 1638400;
@@ -1259,6 +1282,9 @@ async function callImageApi(db, log, opts) {
     });
   }
 
+  // doubao-seedream-4-5+ 要求最低 3686400 像素，不足时等比放大
+  const effectiveSize = (isSeedream && size) ? seedreamSize(size) : size;
+
   const body = {
     model,
     prompt: effectivePrompt,
@@ -1274,7 +1300,7 @@ async function callImageApi(db, log, opts) {
     // 参考图字段：volcengine doubao-seedream API 规范使用 image（数组），见官方文档
     ...(resolvedRefs.length > 0 ? { image: resolvedRefs } : {}),
   };
-  log.info('Image API request', { url: url.slice(0, 60), model, image_gen_id, has_ref_images: resolvedRefs.length > 0 });
+  log.info('Image API request', { url: url.slice(0, 60), model, image_gen_id, has_ref_images: resolvedRefs.length > 0, size: effectiveSize, original_size: size !== effectiveSize ? size : undefined });
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -1438,14 +1464,23 @@ function createAndGenerateImage(db, log, opts) {
       taskService.updateTaskResult(db, taskId, { image_generation_id: imageGenId, image_url: result.image_url, local_path: localPath, status: 'completed' });
       if (charIdNum != null) {
         try {
-          db.prepare('UPDATE characters SET image_url = ?, local_path = ?, updated_at = ? WHERE id = ?').run(
+          // 旧图追加到 extra_images，与上传逻辑保持一致
+          const oldChar = db.prepare('SELECT local_path, image_url, extra_images FROM characters WHERE id = ?').get(charIdNum);
+          const oldPath = oldChar?.local_path || oldChar?.image_url || '';
+          let extras = [];
+          try { extras = oldChar?.extra_images ? JSON.parse(oldChar.extra_images) : []; } catch (_) {}
+          if (!Array.isArray(extras)) extras = [];
+          if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
+          const extraJson = extras.length ? JSON.stringify(extras) : null;
+          db.prepare('UPDATE characters SET image_url = ?, local_path = ?, extra_images = ?, updated_at = ? WHERE id = ?').run(
             result.image_url,
             localPath,
+            extraJson,
             now2,
             charIdNum
           );
         } catch (e) {
-          if ((e.message || '').includes('local_path')) {
+          if ((e.message || '').includes('local_path') || (e.message || '').includes('extra_images')) {
             db.prepare('UPDATE characters SET image_url = ?, updated_at = ? WHERE id = ?').run(result.image_url, now2, charIdNum);
           } else {
             throw e;
@@ -1455,14 +1490,23 @@ function createAndGenerateImage(db, log, opts) {
       }
       if (sceneIdNum != null) {
         try {
-          db.prepare('UPDATE scenes SET image_url = ?, local_path = ?, updated_at = ? WHERE id = ?').run(
+          // 旧图追加到 extra_images，与上传逻辑保持一致
+          const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(sceneIdNum);
+          const oldPath = oldScene?.local_path || oldScene?.image_url || '';
+          let extras = [];
+          try { extras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
+          if (!Array.isArray(extras)) extras = [];
+          if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
+          const extraJson = extras.length ? JSON.stringify(extras) : null;
+          db.prepare('UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, updated_at = ? WHERE id = ?').run(
             result.image_url,
             localPath,
+            extraJson,
             now2,
             sceneIdNum
           );
         } catch (e) {
-          if ((e.message || '').includes('local_path')) {
+          if ((e.message || '').includes('local_path') || (e.message || '').includes('extra_images')) {
             db.prepare('UPDATE scenes SET image_url = ?, updated_at = ? WHERE id = ?').run(result.image_url, now2, sceneIdNum);
           } else {
             throw e;

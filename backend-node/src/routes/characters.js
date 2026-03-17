@@ -198,6 +198,18 @@ function routes(db, cfg, log, uploadService) {
         response.internalError(res, err.message);
       }
     },
+    extractAnchors: (req, res) => {
+      const charRow = db.prepare(
+        'SELECT id, appearance, identity_anchors FROM characters WHERE id = ? AND deleted_at IS NULL'
+      ).get(Number(req.params.id));
+      if (!charRow) return response.notFound(res, '角色不存在');
+      if (!charRow.appearance) return response.badRequest(res, '角色缺少外貌描述，无法提炼锚点');
+      const { enrichIdentityAnchors } = require('../services/characterGenerationService');
+      setImmediate(() => {
+        enrichIdentityAnchors(db, log, charRow.id, charRow.appearance).catch(() => {});
+      });
+      response.success(res, { message: '锚点提炼已启动，请稍后刷新查看' });
+    },
     generateFourViewImage: async (req, res) => {
       try {
         const body = req.body || {};

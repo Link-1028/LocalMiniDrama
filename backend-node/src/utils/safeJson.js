@@ -96,6 +96,30 @@ function repairByLastBrace(str) {
 }
 
 /**
+ * 当 AI 返回包装对象（如 {"storyboards":[...]}）而非裸数组时，
+ * 提取第一个非字符串内的 [ 之后的内容作为内部数组候选串，供截断修复使用。
+ * 返回 null 表示未找到内部数组。
+ */
+function extractWrappedArrayStr(str) {
+  const trimmed = str.trimStart();
+  if (trimmed.startsWith('[')) return null; // 已经是数组，无需处理
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const c = trimmed[i];
+    if (inString) {
+      if (escape) { escape = false; continue; }
+      if (c === '\\') { escape = true; continue; }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '[') return trimmed.slice(i); // 找到第一个非字符串内的 [
+  }
+  return null;
+}
+
+/**
  * 清除 JSON 字符串中非法的原始控制字符（0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F）。
  * JSON 规范要求控制字符必须用 \uXXXX 转义，AI 有时会直接输出原始字节（如退格符 \b / 0x08）。
  * 保留 0x09(\t)、0x0A(\n)、0x0D(\r)，它们在 JSON 中常见且合法。
@@ -103,6 +127,34 @@ function repairByLastBrace(str) {
 function sanitizeControlChars(str) {
   // eslint-disable-next-line no-control-regex
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+/**
+ * 将 JSON 字符串值内部的原始换行符转义为 \n / \r。
+ * 中文 AI 模型常见问题：对话/描述字段里直接输出换行字节，导致 JSON.parse 报
+ * "Unterminated string" 或 "Bad control character"。
+ * 此函数通过字符级状态机精确定位字符串内部并替换，不影响 JSON 结构字符。
+ */
+function escapeNewlinesInStrings(str) {
+  let result = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (inString) {
+      if (escape) { escape = false; result += c; continue; }
+      if (c === '\\') { escape = true; result += c; continue; }
+      if (c === '"') { inString = false; result += c; continue; }
+      if (c === '\n') { result += '\\n'; continue; }
+      if (c === '\r') { result += '\\r'; continue; }
+      if (c === '\t') { result += '\\t'; continue; }
+      result += c;
+    } else {
+      if (c === '"') inString = true;
+      result += c;
+    }
+  }
+  return result;
 }
 
 /**
@@ -134,6 +186,10 @@ function safeParseAIJSON(aiResponse, v, log, outMeta) {
     }
   };
 
+  if (!_jsonrepair) {
+    _warn('jsonrepair 未加载，截断修复降级为纯结构修复', {});
+  }
+
   if (!aiResponse || typeof aiResponse !== 'string') {
     throw new Error('AI返回内容为空');
   }
@@ -142,6 +198,8 @@ function safeParseAIJSON(aiResponse, v, log, outMeta) {
     .replace(/^```\s*/gm, '')
     .replace(/```\s*$/gm, '')
     .trim();
+  // 预处理：转义字符串值内部的原始换行/制表符（中文模型常见，会导致 "Unterminated string"）
+  cleaned = escapeNewlinesInStrings(cleaned);
   const jsonStr = extractJsonCandidate(cleaned);
   if (!jsonStr) {
     throw new Error('响应中未找到有效的JSON对象或数组');
@@ -159,6 +217,68 @@ function safeParseAIJSON(aiResponse, v, log, outMeta) {
     return parsed;
   } catch (err) {
     _warn('AI JSON 破损，尝试修复', { original_error: err.message, text_length: jsonStr.length, text_head: jsonStr.slice(0, 120000) });
+
+    // 策略 0：AI 将数组包进对象（如 {"storyboards":[...]}），且因截断导致外层对象不完整。
+    // 提取内部数组候选串，后续所有截断修复策略对它重新执行一遍。
+    const innerArrayStr = extractWrappedArrayStr(jsonStr);
+    if (innerArrayStr) {
+      // 0a：内部数组截断修复
+      const innerRepaired = repairTruncatedJsonArray(innerArrayStr);
+      if (innerRepaired && innerRepaired !== innerArrayStr) {
+        try {
+          const parsed = JSON.parse(innerRepaired);
+          const items = Array.isArray(parsed) ? parsed : extractFirstArray(parsed);
+          if (items && items.length > 0) {
+            _warn('AI JSON 修复成功（策略0a：解包对象+截断修复）', { rescued_items: items.length, original_len: jsonStr.length });
+            if (outMeta) outMeta.truncated = true;
+            if (Array.isArray(v)) { v.length = 0; v.push(...items); }
+            return items;
+          }
+        } catch (_) {}
+        // 0b：解包 + 截断修复 + jsonrepair
+        if (_jsonrepair) {
+          try {
+            const fixed = _jsonrepair(innerRepaired);
+            const parsed = JSON.parse(fixed);
+            const items = Array.isArray(parsed) ? parsed : extractFirstArray(parsed);
+            if (items && items.length > 0) {
+              _warn('AI JSON 修复成功（策略0b：解包对象+截断修复+jsonrepair）', { rescued_items: items.length });
+              if (outMeta) outMeta.truncated = true;
+              if (Array.isArray(v)) { v.length = 0; v.push(...items); }
+              return items;
+            }
+          } catch (_) {}
+        }
+      }
+      // 0c：激进截断（切到最后一个 }）
+      const innerRough = repairByLastBrace(innerArrayStr);
+      if (innerRough && innerRough !== innerArrayStr) {
+        try {
+          const parsed = JSON.parse(innerRough);
+          const items = Array.isArray(parsed) ? parsed : extractFirstArray(parsed);
+          if (items && items.length > 0) {
+            _warn('AI JSON 修复成功（策略0c：解包对象+激进截断）', { rescued_items: items.length });
+            if (outMeta) outMeta.truncated = true;
+            if (Array.isArray(v)) { v.length = 0; v.push(...items); }
+            return items;
+          }
+        } catch (_) {}
+        // 0d：激进截断 + jsonrepair
+        if (_jsonrepair) {
+          try {
+            const fixed = _jsonrepair(innerRough);
+            const parsed = JSON.parse(fixed);
+            const items = Array.isArray(parsed) ? parsed : extractFirstArray(parsed);
+            if (items && items.length > 0) {
+              _warn('AI JSON 修复成功（策略0d：解包对象+激进截断+jsonrepair）', { rescued_items: items.length });
+              if (outMeta) outMeta.truncated = true;
+              if (Array.isArray(v)) { v.length = 0; v.push(...items); }
+              return items;
+            }
+          } catch (_) {}
+        }
+      }
+    }
 
     // 修复策略 1：截断数组修复（应对 max_tokens 截断场景）
     // 通过深度追踪找到已完整闭合的顶层元素，截断后补 ]
@@ -318,4 +438,4 @@ function extractFirstArray(parsed) {
   return null;
 }
 
-module.exports = { safeParseAIJSON, extractJsonCandidate, repairTruncatedJsonArray, extractFirstArray };
+module.exports = { safeParseAIJSON, extractJsonCandidate, repairTruncatedJsonArray, repairByLastBrace, extractFirstArray, escapeNewlinesInStrings, extractWrappedArrayStr, _jsonrepair };

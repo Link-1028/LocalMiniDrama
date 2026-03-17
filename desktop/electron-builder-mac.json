@@ -11,7 +11,8 @@
     "node_modules/**/*"
   ],
   "asarUnpack": [
-    "node_modules/better-sqlite3/**"
+    "node_modules/better-sqlite3/**",
+    "backend-app/tools/**"
   ],
   "extraResources": [
     {
@@ -22,6 +23,11 @@
     {
       "from": "../example_drama",
       "to": "example_drama",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "ffmpeg-mac",
+      "to": "ffmpeg",
       "filter": ["**/*"]
     }
   ],

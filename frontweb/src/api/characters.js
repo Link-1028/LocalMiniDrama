@@ -37,5 +37,8 @@ export const characterAPI = {
   },
   extractFromImage(characterId) {
     return request.post(`/characters/${characterId}/extract-from-image`, {})
+  },
+  extractAnchors(characterId) {
+    return request.post(`/characters/${characterId}/extract-anchors`, {})
   }
 }

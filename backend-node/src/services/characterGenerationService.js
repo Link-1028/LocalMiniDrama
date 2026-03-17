@@ -190,4 +190,5 @@ function generateCharacters(db, cfg, log, req) {
 
 module.exports = {
   generateCharacters,
+  enrichIdentityAnchors,
 };

@@ -108,9 +108,25 @@ async function processPropImageGeneration(db, log, taskId, propId, opts) {
   } catch (_) {}
 
   const now = new Date().toISOString();
-  db.prepare(
-    'UPDATE props SET image_url = ?, local_path = ?, updated_at = ? WHERE id = ?'
-  ).run(result.image_url, localPath, now, propId);
+  // 旧图追加到 extra_images，与上传逻辑保持一致
+  const oldProp = db.prepare('SELECT local_path, image_url, extra_images FROM props WHERE id = ?').get(propId);
+  const oldPath = oldProp?.local_path || oldProp?.image_url || '';
+  let extras = [];
+  try { extras = oldProp?.extra_images ? JSON.parse(oldProp.extra_images) : []; } catch (_) {}
+  if (!Array.isArray(extras)) extras = [];
+  if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
+  const extraJson = extras.length ? JSON.stringify(extras) : null;
+  try {
+    db.prepare(
+      'UPDATE props SET image_url = ?, local_path = ?, extra_images = ?, updated_at = ? WHERE id = ?'
+    ).run(result.image_url, localPath, extraJson, now, propId);
+  } catch (e) {
+    if ((e.message || '').includes('extra_images')) {
+      db.prepare('UPDATE props SET image_url = ?, local_path = ?, updated_at = ? WHERE id = ?').run(result.image_url, localPath, now, propId);
+    } else {
+      throw e;
+    }
+  }
 
   taskService.updateTaskResult(db, taskId, {
     image_url: result.image_url,

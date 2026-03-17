@@ -41,7 +41,7 @@ function setupRouter(cfg, db, log) {
   const videos = videoRoutes(db, log);
   const videoMerges = videoMergeRoutes(db, log);
   const assets = assetRoutes(db, log);
-  const audio = audioRoutes(db, log);
+  const audio = audioRoutes(db, log, cfg);
   const promptOverrides = promptOverridesRoutes.routes(db, log);
 
   // ---------- dramas ----------
@@ -53,6 +53,26 @@ function setupRouter(cfg, db, log) {
   const multer = require('multer');
   const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
   r.post('/dramas/import', importUpload.single('file'), drama.importDrama);
+  r.post('/dramas/import-novel', importUpload.single('file'), async (req, res) => {
+    try {
+      const novelImportService = require('../services/novelImportService');
+      let text = '';
+      if (req.file && req.file.buffer) {
+        text = req.file.buffer.toString('utf8');
+      } else if (req.body && req.body.text) {
+        text = req.body.text;
+      }
+      if (!text.trim()) return response.badRequest(res, '请上传小说文本文件或提供 text 参数');
+      const title = req.body?.title || '';
+      const maxChapters = Number(req.body?.max_chapters) || 20;
+      const aiSummarize = req.body?.ai_summarize === 'true' || req.body?.ai_summarize === true;
+      const result = await novelImportService.importNovel(db, log, { text, title, maxChapters, aiSummarize });
+      response.success(res, result);
+    } catch (err) {
+      log.error('dramas import-novel', { error: err.message });
+      response.internalError(res, err.message);
+    }
+  });
   r.get('/dramas/examples', drama.listExamples);
   r.post('/dramas/import-example', drama.importExample);
   r.put('/dramas/:id/outline', drama.saveOutline);
@@ -142,6 +162,7 @@ function setupRouter(cfg, db, log) {
   r.post('/characters/:id/add-to-library', characters.addToLibrary);
   r.post('/characters/:id/add-to-material-library', characters.addToMaterialLibrary);
   r.post('/characters/:id/extract-from-image', characters.extractFromImage);
+  r.post('/characters/:id/extract-anchors', characters.extractAnchors);
 
   // ---------- props ----------
   r.get('/props/:id', prop.getPropById);
@@ -246,6 +267,7 @@ function setupRouter(cfg, db, log) {
   r.get('/storyboards/:id/frame-prompts', storyboards.framePromptsGet);
   r.post('/storyboards/:id/polish-prompt', storyboards.polishPrompt);
   r.post('/storyboards/batch-infer-params', storyboards.batchInferParams);
+  r.post('/storyboards/:id/upscale', storyboards.upscale);
 
   // ---------- audio ----------
   r.post('/audio/extract', audio.extract);

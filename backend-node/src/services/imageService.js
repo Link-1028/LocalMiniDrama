@@ -1112,9 +1112,27 @@ async function processImageGeneration(db, log, imageGenId) {
       taskService.updateTaskResult(db, row.task_id, { image_generation_id: imageGenId, image_url: result.image_url, status: 'completed' });
     }
     if (row.scene_id != null && row.storyboard_id == null) {
-      db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
-        result.image_url, localPath, now2, row.scene_id
-      );
+      // 旧图追加到 extra_images，与上传逻辑保持一致
+      const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(row.scene_id);
+      const oldPath = oldScene?.local_path || oldScene?.image_url || '';
+      let sceneExtras = [];
+      try { sceneExtras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
+      if (!Array.isArray(sceneExtras)) sceneExtras = [];
+      if (oldPath && !sceneExtras.includes(oldPath)) sceneExtras.push(oldPath);
+      const sceneExtraJson = sceneExtras.length ? JSON.stringify(sceneExtras) : null;
+      try {
+        db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
+          result.image_url, localPath, sceneExtraJson, now2, row.scene_id
+        );
+      } catch (e) {
+        if ((e.message || '').includes('extra_images')) {
+          db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
+            result.image_url, localPath, now2, row.scene_id
+          );
+        } else {
+          throw e;
+        }
+      }
     }
     log.info('[图生] ✓ 完成', { id: imageGenId, local_path: localPath, total_elapsed: elapsed() });
 

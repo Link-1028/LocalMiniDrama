@@ -143,7 +143,7 @@
       <!-- 1. 故事生成 -->
       <section class="section card">
         <h2 class="section-title">故事生成</h2>
-        <p class="section-desc">输入一段故事梗概，AI 帮你扩写成完整剧本</p>
+        <p class="section-desc">输入一段故事梗概，AI 帮你扩写成完整剧本，或直接导入小说章节</p>
         <el-input
           v-model="storyInput"
           type="textarea"
@@ -173,6 +173,10 @@
           </el-select>
           <el-button type="primary" :loading="storyGenerating" @click="onGenerateStory">
             生成剧本
+          </el-button>
+          <el-button plain @click="showNovelImport = true">
+            <el-icon><DocumentAdd /></el-icon>
+            导入小说
           </el-button>
         </div>
       </section>
@@ -556,10 +560,12 @@
                       </div>
                     </div>
                     <div class="asset-cover-actions">
-                      <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" @click="onGenerateSceneImage(scene)">
-                        <el-icon v-if="!generatingSceneIds.has(scene.id)"><MagicStick /></el-icon>
-                        AI 生成
-                      </el-button>
+                      <el-tooltip content="多角度图一张（正/侧/俯/仰）" placement="top">
+                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" @click="onGenerateSceneImage(scene)">
+                          <el-icon v-if="!generatingSceneIds.has(scene.id)"><MagicStick /></el-icon>
+                          AI 生成
+                        </el-button>
+                      </el-tooltip>
                       <el-button type="success" size="small" :loading="uploadingResourceId === 'scene-' + scene.id" @click="onUploadResourceClick('scene', scene.id)">
                         <el-icon v-if="uploadingResourceId !== 'scene-' + scene.id"><Upload /></el-icon>
                         上传
@@ -642,6 +648,26 @@
               </el-button>
               <el-button v-if="batchImageRunning" size="large" type="danger" plain @click="batchImageStopping = true">停止图片</el-button>
               <el-button v-if="batchVideoRunning" size="large" type="danger" plain @click="batchVideoStopping = true">停止视频</el-button>
+            </div>
+            <div class="batch-video-options" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;">
+              <el-checkbox v-model="videoFrameContiguity" size="small">
+                连贯帧模式（自动衔接相邻视频帧）
+              </el-checkbox>
+              <el-tooltip placement="top" :show-after="100">
+                <template #content>
+                  <div style="max-width:320px;line-height:1.7">
+                    <div style="font-weight:600;margin-bottom:4px">连贯帧模式说明</div>
+                    <div>启用后批量视频顺序生成，每条视频的<b>末帧</b>自动截取并作为下一条视频的<b>首帧参考图</b>，减少镜头切换的跳跃感。</div>
+                    <div style="margin-top:8px;font-weight:600">⚠️ 需要模型支持图生视频（i2v）</div>
+                    <div style="margin-top:4px">
+                      ✅ 支持：kling-video、kling-omni-video、wan2.2-kf2v-flash、wan2.6-i2v-flash<br/>
+                      ❌ 不支持（末帧将被忽略）：wan2.6-t2v、wan2.6-r2v-flash、wanx2.1-vace-plus 等纯文生视频模型
+                    </div>
+                    <div style="margin-top:8px;color:#faad14">如当前视频模型不支持 i2v，启用此选项不会报错，但末帧衔接不会生效。</div>
+                  </div>
+                </template>
+                <el-icon style="color:#9ca3af;cursor:help"><QuestionFilled /></el-icon>
+              </el-tooltip>
             </div>
           </template>
         </div>
@@ -904,6 +930,16 @@
               <div v-if="hasSbImage(sb)" class="sb-image-actions">
                 <el-button size="small" :loading="generatingSbImageIds.has(sb.id)" @click="onGenerateSbImage(sb)">重新生成</el-button>
                 <el-button size="small" :loading="uploadingSbImageId === sb.id" @click="onUploadSbImageClick(sb)">上传</el-button>
+                <el-tooltip content="高清放大（2x超分辨率）" placement="top">
+                  <el-button
+                    size="small"
+                    :loading="upscalingSbIds.has(sb.id)"
+                    :disabled="!getSbLocalImage(sb)"
+                    @click="onUpscaleSbImage(sb)"
+                  >
+                    <el-icon><ZoomIn /></el-icon>超分
+                  </el-button>
+                </el-tooltip>
               </div>
             </div>
             <!-- 右：分镜视频（由 /videos?storyboard_id 拉取）；有视频时仍显示提示词与生成按钮便于调整后重新生成 -->
@@ -960,6 +996,15 @@
               </div>
               <div v-if="getSbVideo(sb.id)" class="sb-video-actions">
                 <el-button size="small" :loading="generatingSbVideoIds.has(sb.id)" :disabled="!sb.video_prompt" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+                <el-tooltip v-if="sb.dialogue" content="对白配音（TTS）" placement="top">
+                  <el-button size="small" :loading="ttsSbIds.has(sb.id)" @click="onTtsSbDialogue(sb)">
+                    配音
+                  </el-button>
+                </el-tooltip>
+              </div>
+              <!-- TTS 音频播放 -->
+              <div v-if="sbAudioPaths[sb.id]" class="sb-audio-player">
+                <audio :src="'/static/' + sbAudioPaths[sb.id]" controls style="width:100%;height:32px" />
               </div>
               <div class="sb-video-prompt-label">
                 <span class="sb-dot"></span>
@@ -1160,6 +1205,47 @@
               :placeholder="editCharacterPromptGenerating ? 'AI 正在生成提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
               :disabled="editCharacterPromptGenerating"
               style="font-size:12px"
+            />
+          </div>
+        </el-form-item>
+        <!-- P0-2: 视觉锚点（identity_anchors） -->
+        <el-form-item v-if="editCharacterForm.id" label="视觉锚点">
+          <div style="width:100%">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:12px;color:#909399">AI 从外貌描述提炼的6层视觉特征，用于保持生成图片角色一致性</span>
+              <el-button
+                size="small"
+                :loading="extractingAnchors"
+                :disabled="!editCharacterForm.appearance"
+                @click="extractIdentityAnchors"
+              >提炼视觉锚点</el-button>
+            </div>
+            <el-input
+              v-if="editCharacterForm.identity_anchors"
+              :value="typeof editCharacterForm.identity_anchors === 'string'
+                ? editCharacterForm.identity_anchors
+                : JSON.stringify(editCharacterForm.identity_anchors, null, 2)"
+              type="textarea"
+              :rows="4"
+              readonly
+              style="font-size:11px;font-family:monospace"
+              placeholder="点击「提炼视觉锚点」生成"
+            />
+            <div v-else style="font-size:12px;color:#c0c4cc;padding:4px 0">暂无锚点，点击「提炼视觉锚点」自动提炼</div>
+          </div>
+        </el-form-item>
+        <!-- P1-3: 多阶段造型（stages） -->
+        <el-form-item v-if="editCharacterForm.id" label="多阶段造型">
+          <div style="width:100%">
+            <div style="font-size:12px;color:#909399;margin-bottom:6px">
+              不同集次的角色造型变化，格式：JSON 数组 [{"episode_range":[1,3],"appearance":"..."}]
+            </div>
+            <el-input
+              v-model="editCharacterForm.stages"
+              type="textarea"
+              :rows="4"
+              placeholder='例：[{"episode_range":[1,5],"appearance":"白衣少年"},{"episode_range":[6,10],"appearance":"黑衣武者"}]'
+              style="font-size:12px;font-family:monospace"
             />
           </div>
         </el-form-item>
@@ -1684,6 +1770,47 @@
       </template>
     </el-dialog>
 
+    <!-- P1-2: 导入小说弹窗 -->
+    <el-dialog v-model="showNovelImport" title="导入小说/长文" width="600px" @close="novelImportReset">
+      <div class="novel-import-dialog">
+        <p style="color:#6b7280;font-size:13px;margin-bottom:12px">支持粘贴小说文本或上传 txt 文件，AI 自动识别章节并转换为剧本集数</p>
+        <el-tabs v-model="novelImportMode">
+          <el-tab-pane label="粘贴文本" name="text">
+            <el-input
+              v-model="novelText"
+              type="textarea"
+              :rows="10"
+              placeholder="粘贴小说正文，AI 会自动识别章节..."
+            />
+          </el-tab-pane>
+          <el-tab-pane label="上传文件" name="file">
+            <el-upload
+              drag
+              :auto-upload="false"
+              :on-change="onNovelFileChange"
+              accept=".txt,.md"
+              :show-file-list="false"
+            >
+              <el-icon class="el-icon--upload"><DocumentAdd /></el-icon>
+              <div class="el-upload__text">拖拽 .txt / .md 文件到此处，或<em>点击上传</em></div>
+            </el-upload>
+            <div v-if="novelFileName" style="margin-top:8px;font-size:13px;color:#409eff">已选择：{{ novelFileName }}</div>
+          </el-tab-pane>
+        </el-tabs>
+        <div class="novel-import-options" style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+            <span>最多导入集数：</span>
+            <el-input-number v-model="novelMaxChapters" :min="1" :max="20" size="small" style="width:100px" />
+          </div>
+          <el-checkbox v-model="novelAiSummarize" size="small">AI 转换为剧本格式（会消耗 Token）</el-checkbox>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showNovelImport = false">取消</el-button>
+        <el-button type="primary" :loading="novelImporting" @click="onImportNovel">开始导入</el-button>
+      </template>
+    </el-dialog>
+
     <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
     <el-dialog v-model="showAiConfigDialog" title="AI 配置" width="90%" destroy-on-close class="ai-config-dialog">
       <AIConfigContent v-if="showAiConfigDialog" />
@@ -1707,7 +1834,7 @@ import { ref, computed, onMounted, onBeforeUnmount, reactive, nextTick } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh } from '@element-plus/icons-vue'
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh, ZoomIn, QuestionFilled, DocumentAdd } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { dramaAPI } from '@/api/drama'
@@ -1727,6 +1854,11 @@ import { propLibraryAPI } from '@/api/propLibrary'
 import { generationSettingsAPI } from '@/api/prompts'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
+import { generationStyleOptions, getStylePromptEn, getStylePromptZh } from '@/constants/styleOptions'
+import { useNavigation } from '@/composables/filmCreate/useNavigation'
+import { useCharacters } from '@/composables/filmCreate/useCharacters'
+import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
+import { useScenes } from '@/composables/filmCreate/useScenes'
 
 const route = useRoute()
 const router = useRouter()
@@ -1734,17 +1866,13 @@ const store = useFilmStore()
 const { isDark, toggle: toggleTheme } = useTheme()
 const { videoResolution: storeVideoResolution } = storeToRefs(store)
 
+// ── Composable: Navigation ─────────────────────────────
+const { navCollapsed, storyboardMenuExpanded, toggleNav, scrollToTop, scrollToAnchor } = useNavigation()
+
 function goList() {
   router.push('/')
 }
 
-function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-function scrollToAnchor(id) {
-  const el = document.getElementById(id)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
 
 const showAiConfigDialog = ref(false)
 const storyInput = ref('')
@@ -1752,6 +1880,15 @@ const storyStyle = ref('')
 const storyType = ref('')
 const storyEpisodeCount = ref(1)
 const storyGenerating = ref(false)
+// P1-2: 小说导入
+const showNovelImport = ref(false)
+const novelImportMode = ref('text')
+const novelText = ref('')
+const novelFileName = ref('')
+const novelFileContent = ref('')
+const novelMaxChapters = ref(10)
+const novelAiSummarize = ref(false)
+const novelImporting = ref(false)
 const scriptTitle = ref('')
 const selectedEpisodeId = ref(null)
 /** 保存剧本后用于恢复选中集（后端重插后 id 会变，用 episode_number 匹配） */
@@ -1762,161 +1899,6 @@ const scriptGenerating = ref(false)
 const generationStyle = ref('')
 const projectAspectRatio = ref('16:9')
 const videoClipDuration = ref(5)
-// value = 存库的短标识（向后兼容）
-// prompt = 中文描述（界面展示用）
-// promptEn = 英文描述（传给图像/视频 AI 用，效果更好）
-const generationStyleOptions = [
-  {
-    label: '写实 / 影视',
-    options: [
-      { label: '写实',    value: 'realistic',
-        prompt:   '超写实摄影风格，8K超清细节，精准自然光照，真实皮肤纹理，专业摄影机拍摄，RAW原片质感，超高清锐度，人物面部毛孔清晰可见',
-        promptEn: 'photorealistic, ultra-detailed, 8k uhd, sharp focus, natural lighting, real skin texture, hyperrealism, professional photography, RAW photo',
-        color: 'linear-gradient(135deg,#c9a87c,#7c5e3c)', thumb: '/style-thumbs/realistic.jpg' },
-      { label: '电影感',  value: 'cinematic',
-        prompt:   '电影级大片画面，变形镜头压缩感，胶片颗粒质感，伦勃朗式戏剧性布光，浅景深虚化背景，专业调色风格，史诗级构图，35mm胶片美学，宽画幅银幕比例',
-        promptEn: 'cinematic movie still, anamorphic lens, film grain, dramatic rembrandt lighting, shallow depth of field, color graded, epic composition, professional cinematography, 35mm film, widescreen',
-        color: 'linear-gradient(135deg,#1a1a2e,#c9aa71)', thumb: '/style-thumbs/cinematic.jpg' },
-      { label: '纪录片',  value: 'documentary',
-        prompt:   '纪录片摄影风格，自然可用光源，抓拍式真实瞬间，手持摄影机晃动感，新闻摄影美学，粗粝真实质感，颗粒感胶片，非摆拍自然状态',
-        promptEn: 'documentary photography style, natural available light, candid authentic moment, handheld camera look, photojournalism, raw gritty realism, grain texture, unposed',
-        color: 'linear-gradient(135deg,#4a6741,#8fbc8f)', thumb: '/style-thumbs/documentary.jpg' },
-      { label: '黑色电影', value: 'noir',
-        prompt:   '黑色电影风格，高对比度黑白影调，强烈明暗光影雕刻，百叶窗投影光纹，1940年代侦探片氛围，悬疑神秘气质，烟雾缭绕与雨夜街景',
-        promptEn: 'film noir, dramatic high-contrast black and white, hard chiaroscuro shadows, venetian blind light patterns, moody 1940s detective aesthetic, mystery atmosphere, smoke and rain',
-        color: 'linear-gradient(135deg,#1a1a1a,#666)',    thumb: '/style-thumbs/noir.jpg' },
-      { label: '复古胶片', value: 'retro film',
-        prompt:   '复古胶片摄影美学，柯达色彩体系，漏光与光晕效果，浓重35mm胶片颗粒，褪色暖调色彩，模拟胶片质感，怀旧复古氛围，轻微过曝处理',
-        promptEn: 'vintage retro film photography, kodachrome color palette, light leaks, heavy 35mm grain, faded warm tones, analog film aesthetics, nostalgic atmosphere, slightly overexposed',
-        color: 'linear-gradient(135deg,#d4a373,#8b6914)', thumb: '/style-thumbs/retro.jpg' },
-      { label: '恐怖',    value: 'horror',
-        prompt:   '恐怖氛围渲染，阴暗压抑情绪，浓厚大气雾气，深重戏剧阴影，诡异冷色布光，令人不安的构图，哥特元素点缀，去饱和暗调色板，心理悬疑张力',
-        promptEn: 'horror atmosphere, dark ominous mood, dense atmospheric fog, deep dramatic shadows, eerie cold lighting, unsettling composition, gothic elements, desaturated dark palette, psychological tension',
-        color: 'linear-gradient(135deg,#1a0a0a,#7b1111)', thumb: '/style-thumbs/horror.jpg' },
-    ]
-  },
-  {
-    label: '动漫 / 卡通',
-    options: [
-      { label: '日本动漫', value: 'anime style',
-        prompt:   '日本动漫画风，精细赛璐璐上色，清晰黑色线稿，高饱和鲜艳配色，极具表现力的角色设计，动画工作室级别质量，漫画美学影响，关键帧视觉插图风格',
-        promptEn: 'anime style, Japanese animation, clean cel shading, precise black linework, vibrant saturated colors, expressive character design, studio quality, manga influence, key visual illustration',
-        color: 'linear-gradient(135deg,#ff9fd2,#a97cdb)', thumb: '/style-thumbs/anime.jpg' },
-      { label: '欧美漫画', value: 'comic style',
-        prompt:   '欧美漫画风格，粗犷墨线勾勒，半调网点纹理，充满动感的动作构图，平涂鲜艳色彩，超级英雄插画美学，墨水上色分格效果',
-        promptEn: 'western comic book style, bold ink linework, halftone dot texture, dynamic action composition, flat vibrant colors, superhero illustration aesthetic, inked and colored panels',
-        color: 'linear-gradient(135deg,#4169e1,#ff6b47)', thumb: '/style-thumbs/comic.jpg' },
-      { label: '卡通',    value: 'cartoon',
-        prompt:   '卡通插画风格，简洁粗犷轮廓线，平涂纯色块面，夸张表情与肢体动作，活泼友好的设计感，欧美动画片风格，干净的矢量感画质',
-        promptEn: 'cartoon illustration, simple bold outlines, flat solid colors, exaggerated expressive features, playful friendly design, western animation style, clean vector-like quality',
-        color: 'linear-gradient(135deg,#ffd700,#ff6b6b)', thumb: '/style-thumbs/cartoon.jpg' },
-      { label: '2D 动画', value: '2d animation',
-        prompt:   '二维动画风格，流畅动画单帧画面，干净平面设计感，粗犷轮廓线条，鲜艳饱和色彩，动画长片级别质量，关键帧插画美学',
-        promptEn: '2D animation style, smooth animated frame, clean flat design, bold outlines, vibrant colors, animated feature film quality, keyframe illustration',
-        color: 'linear-gradient(135deg,#43e97b,#38f9d7)', thumb: '/style-thumbs/2d-animation.jpg' },
-    ]
-  },
-  {
-    label: '中国风格',
-    options: [
-      { label: '国画水墨', value: 'ink wash',
-        prompt:   '中国传统水墨画风格，泼墨写意技法，单色笔墨晕染，竹毫笔触肌理，极简留白构图，宣纸纸张质感，诗意朦胧云雾氛围，国画工笔与写意结合',
-        promptEn: 'traditional Chinese ink wash painting, sumi-e style, monochrome brushwork, bamboo brush strokes, minimalist composition, generous negative space, xuan paper texture, poetic misty atmosphere, guohua style',
-        color: 'linear-gradient(135deg,#e8e0d5,#8b7355)', thumb: '/style-thumbs/ink-wash.jpg' },
-      { label: '中国风',  value: 'chinese style',
-        prompt:   '中国传统美学，精致汉服服饰，朱红描金器物，精工刺绣纹样，明清朝代设计元素，古典建筑与亭台楼阁，景深悠远的意境',
-        promptEn: 'Chinese traditional aesthetics, elegant hanfu costumes, red lacquer and gold ornaments, intricate embroidered patterns, Ming-Qing dynasty design elements, classical architecture, atmospheric depth',
-        color: 'linear-gradient(135deg,#c0392b,#8b0000)', thumb: '/style-thumbs/chinese.jpg' },
-      { label: '古装',    value: 'historical',
-        prompt:   '中国历史古装剧风格，唐宋朝代电影美学，飘逸汉服广袖，皇宫殿宇建筑，古典园林景观，浓郁暖调色彩分级，高制作水准影视质感',
-        promptEn: 'Chinese historical drama, ancient China setting, Tang-Song dynasty cinematic aesthetic, flowing traditional hanfu robes, imperial palace architecture, classical garden, rich warm color grading, high production value',
-        color: 'linear-gradient(135deg,#d4af37,#8b5e14)', thumb: '/style-thumbs/historical.jpg' },
-      { label: '武侠',    value: 'wuxia',
-        prompt:   '武侠史诗画风，古代中国山河背景，丝绸长袍飞扬动感，云雾缥缈的山水胜景，戏剧性剑术对决姿态，水墨晕染氛围影响，侠客剑士英雄美学，史诗宽幅电影构图，烟雾光芒交织的悬疑气氛',
-        promptEn: 'wuxia martial arts epic, ancient China, flowing silk robes in dynamic motion, misty mountain landscape, dramatic sword fighting pose, atmospheric ink wash influence, hero and swordsman aesthetic, cinematic epic wide shot, moody fog and light rays',
-        color: 'linear-gradient(135deg,#2c3e50,#3498db)', thumb: '/style-thumbs/wuxia.jpg' },
-    ]
-  },
-  {
-    label: '绘画艺术',
-    options: [
-      { label: '水彩',    value: 'watercolor',
-        prompt:   '水彩绘画风格，湿润叠色柔边，透明色彩晕染，流动颜料自然扩散，纸张纤维质感，印象派笔触，明亮柔和色调，精致手绘插画质量',
-        promptEn: 'watercolor painting, soft wet-on-wet edges, transparent color washes, flowing pigment blooms, delicate paper texture, impressionistic strokes, luminous pastel tones, fine art illustration',
-        color: 'linear-gradient(135deg,#a8d8ea,#ffd3b6)', thumb: '/style-thumbs/watercolor.jpg' },
-      { label: '油画',    value: 'oil painting',
-        prompt:   '布面油画风格，厚涂肌理质感，有力方向性笔触，深沉饱和色彩，古典大师明暗对比光法，博物馆级精品，文艺复兴美学传承',
-        promptEn: 'oil painting on canvas, rich impasto textures, thick directional brushwork, deep saturated colors, old master chiaroscuro lighting, museum quality fine art, classical Renaissance aesthetic',
-        color: 'linear-gradient(135deg,#d4a76a,#6b3728)', thumb: '/style-thumbs/oil-painting.jpg' },
-      { label: '素描',    value: 'sketch',
-        prompt:   '精细铅笔素描，石墨绘画质感，精准排线与交叉网线，明暗调子处理，美术速写本质量，黑白单色，原始艺术张力，炭笔纸面肌理',
-        promptEn: 'detailed pencil sketch, graphite drawing, precise hatching and crosshatching, tonal shading, fine art sketchbook quality, monochrome, raw artistic energy, charcoal texture',
-        color: 'linear-gradient(135deg,#f0f0f0,#888)',    thumb: '/style-thumbs/sketch.jpg' },
-      { label: '版画',    value: 'woodblock print',
-        prompt:   '传统木刻版画风格，浮世绘美学，大块平涂色域，有限和谐色系，日本版画制作美学，图形化线条，北斋构图风格',
-        promptEn: 'traditional woodblock print, ukiyo-e inspired, bold flat color areas, limited harmonious palette, Japanese printmaking aesthetic, graphic linework, Hokusai style composition',
-        color: 'linear-gradient(135deg,#4a3728,#c9a87c)', thumb: '/style-thumbs/woodblock.jpg' },
-      { label: '印象派',  value: 'impressionist',
-        prompt:   '印象派油画风格，松散表现性笔触，斑驳阳光光影效果，鲜明互补色彩，莫奈雷诺阿风格，户外写生自然光，大气光色交融',
-        promptEn: 'impressionist oil painting, loose expressive brushstrokes, dappled sunlight effect, vibrant complementary colors, Monet-Renoir style, plein air outdoor painting, atmospheric light and color',
-        color: 'linear-gradient(135deg,#7ec8e3,#f9c74f)', thumb: '/style-thumbs/impressionist.jpg' },
-    ]
-  },
-  {
-    label: '幻想 / 科幻',
-    options: [
-      { label: '奇幻',    value: 'fantasy',
-        prompt:   '史诗奇幻数字艺术，神奇空灵大气，戏剧性黄金时刻光效，神话生物与魔法世界，壮阔全景风光，高度细腻概念艺术，绘画插图质量',
-        promptEn: 'epic fantasy digital art, magical ethereal atmosphere, dramatic golden hour lighting, mythical creatures and enchanted world, sweeping landscape, highly detailed concept art, painterly illustration quality',
-        color: 'linear-gradient(135deg,#6a0572,#e8b86d)', thumb: '/style-thumbs/fantasy.jpg' },
-      { label: '暗黑奇幻', value: 'dark fantasy',
-        prompt:   '黑暗奇幻艺术风格，哥特式阴郁氛围，压抑暗沉色调，戏剧性边缘补光，克苏鲁秘法元素，巴洛克繁复细节，严酷粗粝的世界观，恐怖奇幻交融',
-        promptEn: 'dark fantasy art, gothic ominous atmosphere, brooding dark palette, dramatic rim lighting, eldritch and arcane elements, baroque ornate detail, grim and gritty world, horror fantasy crossover',
-        color: 'linear-gradient(135deg,#0d0d0d,#6b0f1a)', thumb: '/style-thumbs/dark-fantasy.jpg' },
-      { label: '科幻',    value: 'sci-fi',
-        prompt:   '科幻概念艺术，未来科技元素，全息投影界面，先进文明设计美学，简洁科幻质感，太空时代材质，发光交互界面，硬科幻写实风格',
-        promptEn: 'science fiction concept art, futuristic technology, holographic displays, sleek advanced civilization design, clean sci-fi aesthetic, space age materials, glowing interfaces, hard sci-fi realism',
-        color: 'linear-gradient(135deg,#0a0a2e,#00d4ff)', thumb: '/style-thumbs/sci-fi.jpg' },
-      { label: '赛博朋克', value: 'cyberpunk',
-        prompt:   '赛博朋克美学，霓虹浸润雨后街道，反乌托邦巨型都市，高科技低生活世界，发光广告牌林立，漆黑雨夜氛围，霓虹粉紫与电光蓝，银翼杀手黑色电影气质',
-        promptEn: 'cyberpunk aesthetic, neon-soaked rain-slicked streets, dystopian megacity, high tech low life, glowing advertising billboards, dark wet night, neon pink magenta and electric blue, blade runner noir atmosphere',
-        color: 'linear-gradient(135deg,#0d0221,#ff00ff)', thumb: '/style-thumbs/cyberpunk.jpg' },
-      { label: '蒸汽朋克', value: 'steampunk',
-        prompt:   '蒸汽朋克美学，维多利亚时代工业幻想，光亮黄铜齿轮与铜管构件，蒸汽驱动机械装置，棕褐色暖调，精巧机械装置，护目镜与礼帽造型，华丽钟表机芯细节',
-        promptEn: 'steampunk aesthetic, Victorian era industrial fantasy, polished brass gears and copper cogs, steam powered machinery, sepia warm tones, elaborate mechanical contraptions, goggles and top hats, ornate clockwork',
-        color: 'linear-gradient(135deg,#3d2b1f,#c87941)', thumb: '/style-thumbs/steampunk.jpg' },
-      { label: '末世废土', value: 'post-apocalyptic',
-        prompt:   '末世废土荒漠，文明崩塌遗迹，灰暗低饱和色调，生存末日氛围，腐朽建筑与废墟，尘埃与碎石漫天，强烈戏剧光照，疯狂麦克斯美学',
-        promptEn: 'post-apocalyptic wasteland, ruined crumbling civilization, harsh desaturated color palette, survival atmosphere, decayed architecture, dust and debris, harsh dramatic light, Mad Max aesthetic',
-        color: 'linear-gradient(135deg,#3d3117,#8b7355)', thumb: '/style-thumbs/post-apoc.jpg' },
-    ]
-  },
-  {
-    label: '数字 / 现代',
-    options: [
-      { label: '3D 渲染', value: '3d render',
-        prompt:   '三维CGI渲染，光线追踪全局光照，次表面散射写实质感，HDRI工作室照明，高精度多边形模型，物理渲染流程，Octane或Redshift级别品质，产品级可视化精度',
-        promptEn: '3D CGI render, ray tracing global illumination, photorealistic subsurface scattering, studio HDRI lighting, high polygon model, physically based rendering, Octane or Redshift quality, product visualization',
-        color: 'linear-gradient(135deg,#1a1a2e,#4facfe)', thumb: '/style-thumbs/3d-render.jpg' },
-      { label: '像素风',  value: 'pixel art',
-        prompt:   '像素艺术风格，16位复古游戏美学，有限色板，清晰硬边像素颗粒，精灵图艺术质感，经典日式RPG视觉风格，等距或横版游戏画面',
-        promptEn: 'pixel art, 16-bit retro game aesthetic, limited color palette, crisp hard pixels, sprite art style, classic JRPG visual, isometric or side-scroll game art',
-        color: 'linear-gradient(135deg,#6272a4,#50fa7b)', thumb: '/style-thumbs/pixel-art.jpg' },
-      { label: '低多边形', value: 'low poly',
-        prompt:   '低多边形几何艺术，平面三角形切面，极简多边形数量，干净彩色切面组合，现代几何美学，三维折纸风格，抽象数字艺术感',
-        promptEn: 'low poly geometric art, flat triangular faceted surfaces, minimal polygon count, clean colorful facets, modern geometric aesthetic, 3D origami style, abstract digital art',
-        color: 'linear-gradient(135deg,#2193b0,#6dd5ed)', thumb: '/style-thumbs/low-poly.jpg' },
-      { label: '极简',    value: 'minimalist',
-        prompt:   '极简主义设计美学，干净无杂乱构图，大量留白呼吸感，简洁几何形态，有限单色色系，包豪斯现代主义，优雅克制的简约美感',
-        promptEn: 'minimalist design, clean uncluttered composition, generous negative space, simple geometric forms, limited monochromatic palette, modern Bauhaus aesthetic, sophisticated elegant simplicity',
-        color: 'linear-gradient(135deg,#e0e0e0,#bdbdbd)', thumb: '/style-thumbs/minimalist.jpg' },
-      { label: '唯美梦幻', value: 'dreamy',
-        prompt:   '唯美梦幻美学，奶油色柔虚背景，粉彩柔和色调，空灵发光氛围，浪漫柔光打亮，细腻雾气与光晕，童话魔法质感，软焦梦境感',
-        promptEn: 'dreamy aesthetic, creamy soft bokeh background, pastel color palette, ethereal glowing atmosphere, romantic soft lighting, delicate haze and glow, fairy tale magical quality, soft focus dreamy',
-        color: 'linear-gradient(135deg,#ffecd2,#fcb69f)', thumb: '/style-thumbs/dreamy.jpg' },
-    ]
-  },
-]
 
 /** 根据 value 查找样式选项对象 */
 function _findStyleOption(val) {
@@ -1974,12 +1956,6 @@ const currentEpisodeVideoUrl = computed(() => {
   return '/static/' + s.replace(/^\//, '')
 })
 
-const charactersGenerating = ref(false)
-const generatingCharIds = reactive(new Set())
-const generatingPropIds = reactive(new Set())
-const generatingSceneIds = reactive(new Set())
-const propsExtracting = ref(false)
-const scenesExtracting = ref(false)
 const storyboardGenerating = ref(false)
 const sbTruncatedWarning = ref(false)
 const sbTruncatedDismissed = ref(false)
@@ -2042,41 +2018,56 @@ async function runConcurrently(items, concurrency, fn, options = {}) {
   await Promise.allSettled(workers)
   return { paused: anyPaused }
 }
-const showAddProp = ref(false)
-const addPropSaving = ref(false)
-const addPropForm = ref({ name: '', type: '', description: '', prompt: '' })
+// ── Composable: Characters ────────────────────────────
+const {
+  showEditCharacter, editCharacterForm, editCharacterSaving, editCharacterPromptGenerating,
+  extractingCharAppearance, extractingAnchors, addCharRefImage, addCharRefFileInput,
+  charactersGenerating, generatingCharIds,
+  showCharLibrary, charLibraryList, charLibraryLoading, charLibraryPage, charLibraryPageSize,
+  charLibraryTotal, charLibraryKeyword, showEditCharLibrary, editCharLibraryForm,
+  editCharLibrarySaving, addingCharToLibraryId, addingCharToMaterialId, addingCharFromLibraryId,
+  charRoleLabel, onGenerateCharacters, openAddCharacter, stopCharacterPromptPoll, editCharacter,
+  saveCharRefImageIfAny, submitEditCharacter, doGenerateCharacterPrompt, doExtractCharFromImage,
+  extractIdentityAnchors, clearCharRefImage, onCloseCharDialog, onDeleteCharacter, onGenerateCharacterImage,
+  loadCharLibraryList, debouncedLoadCharLibrary, openEditCharLibrary, submitEditCharLibrary,
+  onDeleteCharLibrary, onAddCharacterToLibrary, onAddCharacterToMaterialLibrary, onAddCharFromLibrary,
+} = useCharacters({ store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage })
 
-const showEditCharacter = ref(false)
-const editCharacterForm = ref(null)
-const editCharacterSaving = ref(false)
-const editCharacterPromptGenerating = ref(false)
-const extractingCharAppearance = ref(false)
-const addCharRefImage = ref(null)   // { dataUrl, filename }
-const addCharRefFileInput = ref(null)
-let editCharacterPollTimer = null
+// ── Composable: Props ──────────────────────────────────
+const {
+  showAddProp, addPropSaving, addPropForm,
+  showEditProp, editPropForm, editPropSaving, editPropPromptGenerating,
+  extractingPropDesc, addPropRefImage, addPropRefFileInput,
+  addPropAddRefImage, addPropAddRefFileInput, extractingPropAddDesc,
+  propsExtracting, generatingPropIds,
+  showPropLibrary, propLibraryList, propLibraryLoading, propLibraryPage, propLibraryPageSize,
+  propLibraryTotal, propLibraryKeyword, showEditPropLibrary, editPropLibraryForm,
+  editPropLibrarySaving, addingPropToLibraryId, addingPropToMaterialId, addingPropFromLibraryId,
+  onExtractProps, stopPropPromptPoll, editProp, doGeneratePropPrompt, savePropRefImageIfAny,
+  clearPropRefImage, doExtractPropFromImage, submitEditProp, submitAddProp,
+  onClosePropDialog, onDeleteProp, onGeneratePropImage,
+  loadPropLibraryList, debouncedLoadPropLibrary, openEditPropLibrary, submitEditPropLibrary,
+  onDeletePropLibrary, onAddPropToLibrary, onAddPropToMaterialLibrary, onAddPropFromLibrary,
+  doExtractFromRef2,
+} = usePropsComposable({ store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage })
 
-const showEditProp = ref(false)
-const editPropForm = ref(null)
-const editPropSaving = ref(false)
-const editPropPromptGenerating = ref(false)
-const extractingPropDesc = ref(false)
-const addPropRefImage = ref(null)
-const addPropRefFileInput = ref(null)
-let editPropPollTimer = null
+// ── Composable: Scenes ─────────────────────────────────
+const {
+  showEditScene, editSceneForm, editSceneSaving, editScenePromptGenerating,
+  extractingSceneDesc, addSceneRefImage, addSceneRefFileInput,
+  scenesExtracting, generatingSceneIds,
+  // 场景多视角额外 state（由 FilmCreate 管理）
+  showSceneLibrary, sceneLibraryList, sceneLibraryLoading, sceneLibraryPage, sceneLibraryPageSize,
+  sceneLibraryTotal, sceneLibraryKeyword, showEditSceneLibrary, editSceneLibraryForm,
+  editSceneLibrarySaving, addingSceneToLibraryId, addingSceneToMaterialId, addingSceneFromLibraryId,
+  onExtractScenes, openAddScene, stopScenePromptPoll, editScene, doGenerateScenePrompt,
+  saveSceneRefImageIfAny, clearSceneRefImage, doExtractSceneFromImage, submitEditScene,
+  onCloseSceneDialog, onDeleteScene, onGenerateSceneImage,
+  loadSceneLibraryList, debouncedLoadSceneLibrary, openEditSceneLibrary, submitEditSceneLibrary,
+  onDeleteSceneLibrary, onAddSceneToLibrary, onAddSceneToMaterialLibrary, onAddSceneFromLibrary,
+} = useScenes({ store, dramaId, currentEpisodeId, getSelectedStyle, scriptLanguage, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage, dramaAPI })
 
-const showEditScene = ref(false)
-const editSceneForm = ref(null)
-const editSceneSaving = ref(false)
-const editScenePromptGenerating = ref(false)
-const extractingSceneDesc = ref(false)
-const addSceneRefImage = ref(null)
-const addSceneRefFileInput = ref(null)
-let editScenePollTimer = null
 
-// 「添加道具」简单弹窗的独立参考图状态
-const addPropAddRefImage = ref(null)
-const addPropAddRefFileInput = ref(null)
-const extractingPropAddDesc = ref(false)
 
 // 资源管理大面板及子区块折叠状态
 const resourcePanelCollapsed = ref(false)
@@ -2085,26 +2076,7 @@ const propsBlockCollapsed = ref(false)
 const scenesBlockCollapsed = ref(false)
 
 // 分镜行内编辑状态（按 storyboard id 存储）
-const storyboardMenuExpanded = ref(false)
-const navCollapsed = ref(false)
-const NAV_AUTO_COLLAPSE_WIDTH = 960  // 窗口宽度低于此值自动折叠
-let _navAutoCollapsed = false         // 是否是自动折叠（区分用户手动）
-
-function _syncNavCollapse() {
-  const narrow = window.innerWidth < NAV_AUTO_COLLAPSE_WIDTH
-  if (narrow && !_navAutoCollapsed && !navCollapsed.value) {
-    _navAutoCollapsed = true
-    navCollapsed.value = true
-  } else if (!narrow && _navAutoCollapsed) {
-    _navAutoCollapsed = false
-    navCollapsed.value = false
-  }
-}
-
-function toggleNav() {
-  navCollapsed.value = !navCollapsed.value
-  _navAutoCollapsed = false  // 用户手动操作，不再跟随自动
-}
+// navCollapsed/storyboardMenuExpanded/toggleNav → 已移至 useNavigation composable
 
 /** 左侧导航各步骤状态 */
 const navSteps = computed(() => {
@@ -2255,6 +2227,15 @@ const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
+// P0-1: 连贯帧模式
+const videoFrameContiguity = ref(false)
+// P0-3: 分镜超分辨率 loading set
+const upscalingSbIds = reactive(new Set())
+// P2-3: 场景多视角 loading set
+const generatingSceneMultiViewIds = reactive(new Set())
+// P2-4: TTS 状态
+const ttsSbIds = reactive(new Set())
+const sbAudioPaths = ref({})
 /** 正在编辑视频提示词的分镜 id；编辑中显示文本框与保存/取消 */
 const editingSbVideoPromptId = ref(null)
 const editingSbVideoPromptText = ref('')
@@ -2279,60 +2260,133 @@ const resourceUploadId = ref(null)
 const uploadingResourceId = ref(null) // 'char-1' | 'prop-2' | 'scene-3'
 const dragOverResourceKey = ref(null) // 'char-1' | 'prop-2' | 'scene-3'
 const dragOverSbId = ref(null)
-// 公共库弹窗
-const showCharLibrary = ref(false)
-const showPropLibrary = ref(false)
-const showSceneLibrary = ref(false)
-const charLibraryList = ref([])
-const charLibraryLoading = ref(false)
-const charLibraryPage = ref(1)
-const charLibraryPageSize = ref(20)
-const charLibraryTotal = ref(0)
-const charLibraryKeyword = ref('')
+// 公共库弹窗状态已移至各 composable
 const storyboardCount = ref(null) // 分镜数量
 const videoDuration = ref(null) // 视频总长度
 const gridMode = ref('single') // 序列图模式：single / quad_grid / nine_grid
-const showEditCharLibrary = ref(false)
-const editCharLibraryForm = ref(null)
-const editCharLibrarySaving = ref(false)
-const addingCharToLibraryId = ref(null)
-const addingCharToMaterialId = ref(null)
-const addingCharFromLibraryId = ref(null)
-const addingSceneFromLibraryId = ref(null)
-const addingPropFromLibraryId = ref(null)
-const addingPropToLibraryId = ref(null)
-const addingPropToMaterialId = ref(null)
-const addingSceneToLibraryId = ref(null)
-const addingSceneToMaterialId = ref(null)
-// 公共道具库
-const propLibraryList = ref([])
-const propLibraryLoading = ref(false)
-const propLibraryPage = ref(1)
-const propLibraryPageSize = ref(20)
-const propLibraryTotal = ref(0)
-const propLibraryKeyword = ref('')
-const showEditPropLibrary = ref(false)
-const editPropLibraryForm = ref(null)
-const editPropLibrarySaving = ref(false)
-let propLibraryKeywordTimer = null
-// 公共场景库
-const sceneLibraryList = ref([])
-const sceneLibraryLoading = ref(false)
-const sceneLibraryPage = ref(1)
-const sceneLibraryPageSize = ref(20)
-const sceneLibraryTotal = ref(0)
-const sceneLibraryKeyword = ref('')
-const showEditSceneLibrary = ref(false)
-const editSceneLibraryForm = ref(null)
-const editSceneLibrarySaving = ref(false)
-let sceneLibraryKeywordTimer = null
-let charLibraryKeywordTimer = null
+
 
 function getFirstImageFile(dataTransfer) {
   if (!dataTransfer?.files?.length) return null
   const file = Array.from(dataTransfer.files).find((f) => f.type.startsWith('image/'))
   return file || null
 }
+
+// ── 参考图文件读取工具 ──────────────────────────────────
+function readFileAsRefImage(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => resolve({ dataUrl: ev.target.result, filename: file.name })
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * 处理角色/道具/场景参考图文件选择（<input type="file"> change 事件）
+ * type: 'character' | 'prop' | 'scene'
+ */
+async function onRefImageFileChange(type, event) {
+  const file = event.target?.files?.[0]
+  if (!file) return
+  const result = await readFileAsRefImage(file)
+  if (type === 'character') addCharRefImage.value = result
+  else if (type === 'prop') addPropRefImage.value = result
+  else if (type === 'scene') addSceneRefImage.value = result
+  event.target.value = ''
+}
+
+/**
+ * 处理角色/道具/场景参考图拖放（drop 事件）
+ * type: 'character' | 'prop' | 'scene'
+ */
+async function onRefImageDrop(type, event) {
+  const file = getFirstImageFile(event.dataTransfer)
+  if (!file) return
+  const result = await readFileAsRefImage(file)
+  if (type === 'character') addCharRefImage.value = result
+  else if (type === 'prop') addPropRefImage.value = result
+  else if (type === 'scene') addSceneRefImage.value = result
+}
+
+/**
+ * 处理"添加道具"简单弹窗的参考图文件选择
+ * type: 'addProp'
+ */
+async function onRefImageFileChange2(type, event) {
+  const file = event.target?.files?.[0]
+  if (!file) return
+  const result = await readFileAsRefImage(file)
+  if (type === 'addProp') addPropAddRefImage.value = result
+  event.target.value = ''
+}
+
+/**
+ * 处理"添加道具"简单弹窗的参考图拖放
+ * type: 'addProp'
+ */
+async function onRefImageDrop2(type, event) {
+  const file = getFirstImageFile(event.dataTransfer)
+  if (!file) return
+  const result = await readFileAsRefImage(file)
+  if (type === 'addProp') addPropAddRefImage.value = result
+}
+
+/**
+ * 从本地选择（尚未保存到服务器）的参考图中提取特征描述
+ * type: 'character' | 'prop' | 'scene'
+ */
+async function doExtractFromRef(type) {
+  if (type === 'character') {
+    const refImage = addCharRefImage.value
+    if (!refImage) return
+    extractingCharAppearance.value = true
+    try {
+      const name = editCharacterForm.value?.name || ''
+      const res = await uploadAPI.extractDescriptionFromImage('character', refImage.dataUrl, name)
+      if (res?.description && editCharacterForm.value) {
+        editCharacterForm.value.appearance = res.description
+        ElMessage.success('已从参考图提取外貌描述')
+      }
+    } catch (e) {
+      ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+    } finally {
+      extractingCharAppearance.value = false
+    }
+  } else if (type === 'prop') {
+    const refImage = addPropRefImage.value
+    if (!refImage) return
+    extractingPropDesc.value = true
+    try {
+      const name = editPropForm.value?.name || ''
+      const res = await uploadAPI.extractDescriptionFromImage('prop', refImage.dataUrl, name)
+      if (res?.description && editPropForm.value) {
+        editPropForm.value.description = res.description
+        ElMessage.success('已从参考图提取特征描述')
+      }
+    } catch (e) {
+      ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+    } finally {
+      extractingPropDesc.value = false
+    }
+  } else if (type === 'scene') {
+    const refImage = addSceneRefImage.value
+    if (!refImage) return
+    extractingSceneDesc.value = true
+    try {
+      const name = editSceneForm.value?.name || ''
+      const res = await uploadAPI.extractDescriptionFromImage('scene', refImage.dataUrl, name)
+      if (res?.description && editSceneForm.value) {
+        editSceneForm.value.description = res.description
+        ElMessage.success('已从参考图提取场景描述')
+      }
+    } catch (e) {
+      ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+    } finally {
+      extractingSceneDesc.value = false
+    }
+  }
+}
+
 function onResourceDragOver(e, type, id) {
   e.preventDefault()
   e.stopPropagation()
@@ -3116,6 +3170,62 @@ async function onGenerateStory() {
   }
 }
 
+function novelImportReset() {
+  novelText.value = ''
+  novelFileName.value = ''
+  novelFileContent.value = ''
+}
+
+function onNovelFileChange(file) {
+  novelFileName.value = file.name
+  const reader = new FileReader()
+  reader.onload = (ev) => { novelFileContent.value = ev.target.result }
+  reader.readAsText(file.raw || file, 'utf-8')
+}
+
+async function onImportNovel() {
+  const text = novelImportMode.value === 'file' ? novelFileContent.value : novelText.value
+  if (!text?.trim()) {
+    ElMessage.warning('请输入或上传小说内容')
+    return
+  }
+  novelImporting.value = true
+  try {
+    const formData = new FormData()
+    if (novelImportMode.value === 'file' && novelFileContent.value) {
+      const blob = new Blob([novelFileContent.value], { type: 'text/plain' })
+      formData.append('file', blob, novelFileName.value || 'novel.txt')
+    } else {
+      formData.append('text', text)
+    }
+    formData.append('title', scriptTitle.value || '导入小说')
+    formData.append('max_chapters', String(novelMaxChapters.value))
+    formData.append('ai_summarize', String(novelAiSummarize.value))
+    const { default: axios } = await import('axios')
+    const baseURL = (await import('@/utils/request')).default.defaults.baseURL || '/api/v1'
+    const res = await axios.post(`${baseURL}/dramas/import-novel`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    const chapters = res.data?.data?.chapters || res.data?.chapters || []
+    if (!chapters.length) {
+      ElMessage.warning('未能识别到章节内容')
+      return
+    }
+    // 将章节内容填入剧本区域（合并所有集）
+    const combinedScript = chapters.map((ch, i) =>
+      `【第${i + 1}集：${ch.title}】\n${ch.script || ch.content}`
+    ).join('\n\n---\n\n')
+    store.setScriptContent(combinedScript)
+    ElMessage.success(`成功导入 ${chapters.length} 个章节，请继续编辑剧本`)
+    showNovelImport.value = false
+    novelImportReset()
+  } catch (e) {
+    ElMessage.error(e.message || '导入失败')
+  } finally {
+    novelImporting.value = false
+  }
+}
+
 async function onGenerateScript() {
   const content = (scriptContent.value ?? store.scriptContent ?? '').toString().trim()
   if (!content) {
@@ -3164,330 +3274,6 @@ async function onAddEpisode() {
     ElMessage.success('已添加第' + nextNum + '集')
   } catch (e) {
     ElMessage.error(e.message || '添加失败')
-  }
-}
-
-async function onGenerateCharacters() {
-  if (!store.dramaId) return
-  charactersGenerating.value = true
-  try {
-    const outline =
-      (store.scriptContent || '').toString().trim() ||
-      (storyInput.value || '').toString().trim() ||
-      undefined
-    const res = await generationAPI.generateCharacters(store.dramaId, {
-      episode_id: store.currentEpisode?.id ?? undefined,
-      outline: outline || undefined
-    })
-    const taskId = res?.task_id
-    if (taskId) {
-      await pollTask(taskId, () => loadDrama())
-      ElMessage.success('角色生成完成')
-    } else {
-      await loadDrama()
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '生成失败')
-  } finally {
-    charactersGenerating.value = false
-  }
-}
-
-function openAddCharacter() {
-  editCharacterForm.value = {
-    name: '',
-    role: '',
-    appearance: '',
-    personality: '',
-    description: '',
-    polished_prompt: ''
-  }
-  showEditCharacter.value = true
-}
-
-function stopCharacterPromptPoll() {
-  if (editCharacterPollTimer) {
-    clearInterval(editCharacterPollTimer)
-    editCharacterPollTimer = null
-  }
-}
-
-const CHAR_ROLE_LABEL = { main: '主角', supporting: '配角', minor: '次要角色' }
-function charRoleLabel(role) { return CHAR_ROLE_LABEL[role] || role || '' }
-
-function editCharacter(char) {
-  stopCharacterPromptPoll()
-  editCharacterForm.value = {
-    id: char.id,
-    name: char.name || '',
-    role: char.role || '',
-    appearance: char.appearance || '',
-    personality: char.personality || '',
-    description: char.description || '',
-    polished_prompt: char.polished_prompt || '',
-    image_url: char.image_url || '',
-    local_path: char.local_path || '',
-    ref_image: char.ref_image || '',
-  }
-  showEditCharacter.value = true
-  // 如果提示词还没有，说明后台异步可能还在跑，轮询等待（最多 60 秒）
-  if (!char.polished_prompt && char.id && (char.appearance || char.description)) {
-    editCharacterPromptGenerating.value = true
-    let elapsed = 0
-    editCharacterPollTimer = setInterval(async () => {
-      elapsed += 3
-      try {
-        const res = await characterAPI.get(char.id)
-        const prompt = res?.character?.polished_prompt
-        if (prompt) {
-          if (editCharacterForm.value?.id === char.id) {
-            editCharacterForm.value.polished_prompt = prompt
-          }
-          stopCharacterPromptPoll()
-          editCharacterPromptGenerating.value = false
-        } else if (elapsed >= 60) {
-          // 超时：后台可能失败，停止轮询，让用户手动触发
-          stopCharacterPromptPoll()
-          editCharacterPromptGenerating.value = false
-        }
-      } catch (_) {
-        stopCharacterPromptPoll()
-        editCharacterPromptGenerating.value = false
-      }
-    }, 3000)
-  }
-}
-
-/** 将 base64 dataUrl 转为 File 对象 */
-function dataUrlToFile(dataUrl, filename) {
-  const arr = dataUrl.split(',')
-  const mime = (arr[0].match(/:(.*?);/) || [])[1] || 'image/png'
-  const bstr = atob(arr[1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) u8arr[n] = bstr.charCodeAt(n)
-  return new File([u8arr], filename || 'reference.png', { type: mime })
-}
-
-/** 上传临时参考图并保存到角色的 ref_image 字段（不覆盖主图） */
-async function saveCharRefImageIfAny(characterId) {
-  const refImg = addCharRefImage.value
-  if (!refImg || !characterId) return
-  try {
-    const file = dataUrlToFile(refImg.dataUrl, refImg.filename || 'reference.png')
-    const uploadRes = await uploadAPI.uploadImage(file)
-    // 只更新 ref_image，不动 image_url / local_path（主图）
-    const refPath = uploadRes.local_path || uploadRes.url || ''
-    await characterAPI.putRefImage(characterId, refPath)
-  } catch (e) {
-    console.warn('[saveCharRefImage] 保存参考图失败:', e.message)
-  }
-}
-
-async function submitEditCharacter() {
-  const form = editCharacterForm.value
-  if (!form?.name?.trim() || !store.dramaId) return
-  editCharacterSaving.value = true
-  try {
-    if (form.id) {
-      await characterAPI.update(form.id, {
-        name: form.name.trim(),
-        role: form.role || undefined,
-        appearance: form.appearance || undefined,
-        personality: form.personality || undefined,
-        description: form.description || undefined,
-        polished_prompt: form.polished_prompt || undefined
-      })
-      await saveCharRefImageIfAny(form.id)
-      ElMessage.success('角色已保存')
-    } else {
-      const existing = (store.drama?.characters || []).map((c) => ({
-        id: c.id,
-        name: c.name || '',
-        role: c.role || undefined,
-        description: c.description || undefined,
-        personality: c.personality || undefined,
-        appearance: c.appearance || undefined,
-        image_url: c.image_url || undefined,
-        local_path: c.local_path || undefined
-      }))
-      await dramaAPI.saveCharacters(store.dramaId, {
-        characters: [...existing, { name: form.name.trim(), role: form.role || undefined, appearance: form.appearance || undefined, personality: form.personality || undefined, description: form.description || undefined }],
-        episode_id: currentEpisodeId.value ?? undefined
-      })
-      // 新增角色后重新加载，再找到刚添加的角色 ID，保存参考图
-      await loadDrama()
-      if (addCharRefImage.value) {
-        const newChar = (store.drama?.characters || []).find(c => c.name === form.name.trim())
-        if (newChar?.id) await saveCharRefImageIfAny(newChar.id)
-      }
-      ElMessage.success('角色已添加')
-    }
-    await loadDrama()
-    showEditCharacter.value = false
-  } catch (e) {
-    ElMessage.error(e.message || (form.id ? '保存失败' : '添加失败'))
-  } finally {
-    editCharacterSaving.value = false
-  }
-}
-
-async function doGenerateCharacterPrompt() {
-  const form = editCharacterForm.value
-  if (!form?.id) return
-  editCharacterPromptGenerating.value = true
-  try {
-    const res = await characterAPI.generatePrompt(form.id)
-    if (res?.polished_prompt) {
-      form.polished_prompt = res.polished_prompt
-      ElMessage.success('提示词已生成')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '生成提示词失败')
-  } finally {
-    editCharacterPromptGenerating.value = false
-  }
-}
-
-async function doExtractCharFromImage() {
-  const form = editCharacterForm.value
-  if (!form?.id) return
-  extractingCharAppearance.value = true
-  try {
-    const res = await characterAPI.extractFromImage(form.id)
-    if (res?.appearance) {
-      form.appearance = res.appearance
-      ElMessage.success('已从图片提取外貌描述')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败，请检查角色是否已上传参考图片')
-  } finally {
-    extractingCharAppearance.value = false
-  }
-}
-
-async function clearCharRefImage() {
-  const form = editCharacterForm.value
-  if (!form?.id) return
-  try {
-    await characterAPI.putRefImage(form.id, null)
-    form.ref_image = ''
-    ElMessage.success('参考图已移除')
-  } catch (e) {
-    ElMessage.error('移除失败')
-  }
-}
-
-// 具名 close 处理（避免在模板 inline 箭头函数里做 ref 赋值）
-function onCloseCharDialog() {
-  showEditCharacter.value = false
-  stopCharacterPromptPoll()
-  editCharacterPromptGenerating.value = false
-  addCharRefImage.value = null
-}
-function onClosePropDialog() {
-  showEditProp.value = false
-  stopPropPromptPoll()
-  editPropPromptGenerating.value = false
-  addPropRefImage.value = null
-}
-function onCloseSceneDialog() {
-  showEditScene.value = false
-  stopScenePromptPoll()
-  editScenePromptGenerating.value = false
-  addSceneRefImage.value = null
-}
-
-/** 读取选择/拖入的图片文件为 dataUrl，存入对应 ref */
-function onRefImageFileChange(type, event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  event.target.value = ''
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const dataUrl = e.target.result
-    if (type === 'character') addCharRefImage.value = { dataUrl, filename: file.name }
-    else if (type === 'prop') addPropRefImage.value = { dataUrl, filename: file.name }
-    else if (type === 'scene') addSceneRefImage.value = { dataUrl, filename: file.name }
-  }
-  reader.readAsDataURL(file)
-}
-
-function onRefImageDrop(type, event) {
-  const file = event.dataTransfer?.files?.[0]
-  if (!file || !file.type.startsWith('image/')) return
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const dataUrl = e.target.result
-    if (type === 'character') addCharRefImage.value = { dataUrl, filename: file.name }
-    else if (type === 'prop') addPropRefImage.value = { dataUrl, filename: file.name }
-    else if (type === 'scene') addSceneRefImage.value = { dataUrl, filename: file.name }
-  }
-  reader.readAsDataURL(file)
-}
-
-/** 从「添加」弹窗的临时参考图提取特征描述 */
-async function doExtractFromRef(type) {
-  const refMap = { character: addCharRefImage, prop: addPropRefImage, scene: addSceneRefImage }
-  const loadingMap = { character: extractingCharAppearance, prop: extractingPropDesc, scene: extractingSceneDesc }
-  const formMap = { character: editCharacterForm, prop: editPropForm, scene: editSceneForm }
-  const fieldMap = { character: 'appearance', prop: 'description', scene: 'prompt' }
-  const nameFieldMap = { character: 'name', prop: 'name', scene: 'location' }
-
-  const refImage = refMap[type]?.value
-  if (!refImage) return
-  loadingMap[type].value = true
-  try {
-    const form = formMap[type].value
-    const entityName = form?.[nameFieldMap[type]] || ''
-    const res = await uploadAPI.extractDescriptionFromImage(type, refImage.dataUrl, entityName)
-    if (res?.description) {
-      form[fieldMap[type]] = res.description
-      ElMessage.success('已从参考图提取特征描述')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
-  } finally {
-    loadingMap[type].value = false
-  }
-}
-
-// 「添加道具」简单弹窗的专属 file / drop / extract 处理
-function onRefImageFileChange2(type, event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  event.target.value = ''
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    if (type === 'addProp') addPropAddRefImage.value = { dataUrl: e.target.result, filename: file.name }
-  }
-  reader.readAsDataURL(file)
-}
-function onRefImageDrop2(type, event) {
-  const file = event.dataTransfer?.files?.[0]
-  if (!file || !file.type.startsWith('image/')) return
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    if (type === 'addProp') addPropAddRefImage.value = { dataUrl: e.target.result, filename: file.name }
-  }
-  reader.readAsDataURL(file)
-}
-async function doExtractFromRef2(type) {
-  if (type !== 'addProp') return
-  const refImage = addPropAddRefImage.value
-  if (!refImage) return
-  extractingPropAddDesc.value = true
-  try {
-    const entityName = addPropForm.value?.name || ''
-    const res = await uploadAPI.extractDescriptionFromImage('prop', refImage.dataUrl, entityName)
-    if (res?.description) {
-      addPropForm.value.description = res.description
-      ElMessage.success('已从参考图提取特征描述')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
-  } finally {
-    extractingPropAddDesc.value = false
   }
 }
 
@@ -3621,889 +3407,116 @@ function onResourceImageFileChange(ev) {
   })
 }
 
-async function onDeleteCharacter(char) {
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除角色「${(char.name || '未命名').slice(0, 20)}」吗？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-    )
-    await characterAPI.delete(char.id)
-    await loadDrama()
-    ElMessage.success('角色已删除')
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
 
-async function loadCharLibraryList() {
-  charLibraryLoading.value = true
-  try {
-    const res = await characterLibraryAPI.list({
-      drama_id: dramaId.value,
-      page: charLibraryPage.value,
-      page_size: charLibraryPageSize.value,
-      keyword: charLibraryKeyword.value || undefined
-    })
-    charLibraryList.value = res?.items ?? []
-    const pagination = res?.pagination ?? {}
-    charLibraryTotal.value = pagination.total ?? 0
-    if (pagination.page != null) charLibraryPage.value = pagination.page
-    if (pagination.page_size != null) charLibraryPageSize.value = pagination.page_size
-  } catch (e) {
-    charLibraryList.value = []
-  } finally {
-    charLibraryLoading.value = false
-  }
-}
-function debouncedLoadCharLibrary() {
-  if (charLibraryKeywordTimer) clearTimeout(charLibraryKeywordTimer)
-  charLibraryKeywordTimer = setTimeout(() => {
-    charLibraryPage.value = 1
-    loadCharLibraryList()
-  }, 300)
-}
-function openEditCharLibrary(item) {
-  editCharLibraryForm.value = {
-    id: item.id,
-    name: item.name ?? '',
-    category: item.category ?? '',
-    description: item.description ?? '',
-    tags: item.tags ?? ''
-  }
-  showEditCharLibrary.value = true
-}
-async function submitEditCharLibrary() {
-  if (!editCharLibraryForm.value?.id) return
-  editCharLibrarySaving.value = true
-  try {
-    await characterLibraryAPI.update(editCharLibraryForm.value.id, {
-      name: editCharLibraryForm.value.name,
-      category: editCharLibraryForm.value.category || null,
-      description: editCharLibraryForm.value.description || null,
-      tags: editCharLibraryForm.value.tags || null
-    })
-    ElMessage.success('已保存')
-    showEditCharLibrary.value = false
-    loadCharLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    editCharLibrarySaving.value = false
-  }
-}
-async function onDeleteCharLibrary(item) {
-  try {
-    await ElMessageBox.confirm(`确定删除公共角色「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消'
-    })
-    await characterLibraryAPI.delete(item.id)
-    ElMessage.success('已删除')
-    loadCharLibraryList()
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-
-async function onAddCharacterToLibrary(char) {
-  if (!hasAssetImage(char)) { ElMessage.warning('请先为该角色生成或上传图片'); return }
-  addingCharToLibraryId.value = char.id
-  try {
-    await characterAPI.addToLibrary(char.id, {})
-    ElMessage.success('已加入本剧角色库')
-    if (showCharLibrary.value) loadCharLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingCharToLibraryId.value = null
-  }
-}
-async function onAddCharacterToMaterialLibrary(char) {
-  if (!hasAssetImage(char)) { ElMessage.warning('请先为该角色生成或上传图片'); return }
-  addingCharToMaterialId.value = char.id
-  try {
-    await characterAPI.addToMaterialLibrary(char.id)
-    ElMessage.success('已加入全局素材库')
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingCharToMaterialId.value = null
-  }
-}
-
-// 从本剧角色库加入本集
-async function onAddCharFromLibrary(item) {
-  if (!store.dramaId) return
-  addingCharFromLibraryId.value = item.id
-  try {
-    const existing = (store.characters || []).map((c) => ({
-      id: c.id, // 保留 id 以便后端识别为已有角色
-      name: c.name || '',
-      role: c.role || undefined,
-      appearance: c.appearance || undefined,
-      personality: c.personality || undefined,
-      description: c.description || undefined,
-      image_url: c.image_url || undefined,
-      local_path: c.local_path || undefined, // 保留 local_path
-    }))
-    
-    // 只保留当前集的角色关联关系
-    const newCharacters = [...existing];
-    // 如果角色已存在（通过名字判断），则复用其 ID 进行更新
-    const existingChar = newCharacters.find(c => c.name === (item.name || '未命名'));
-    if (existingChar) {
-      // 更新已有角色信息
-      existingChar.description = item.description || existingChar.description;
-      existingChar.appearance = item.appearance || existingChar.appearance;
-      existingChar.image_url = item.image_url || existingChar.image_url;
-      existingChar.local_path = item.local_path || existingChar.local_path;
-    } else {
-      newCharacters.push({
-        name: item.name || '未命名',
-        description: item.description || undefined,
-        appearance: item.appearance || undefined,
-        image_url: item.image_url || undefined,
-        local_path: item.local_path || undefined,
-      });
-    }
-
-    await dramaAPI.saveCharacters(store.dramaId, {
-      characters: newCharacters,
-      episode_id: currentEpisodeId.value ?? undefined,
-    })
-    await loadDrama()
-    ElMessage.success(`「${item.name || '角色'}」已加入本集`)
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingCharFromLibraryId.value = null
-  }
-}
-
-// 从本剧场景库加入本集
-async function onAddSceneFromLibrary(item) {
-  if (!store.dramaId || !currentEpisodeId.value) return
-  addingSceneFromLibraryId.value = item.id
-  try {
-    // 只按地点名匹配（不要求 time 完全相同，避免细微差异导致重复创建）
-    const existingScene = (store.scenes || []).find(
-      (s) => s.location === item.location
-    )
-    if (existingScene) {
-      await sceneAPI.update(existingScene.id, {
-        location: item.location || existingScene.location,
-        time: item.time || existingScene.time,
-        // 若库里有 prompt 则补充，但不覆盖本集已有内容
-        prompt: existingScene.prompt || item.prompt || '',
-        image_url: item.image_url || existingScene.image_url || undefined,
-        local_path: item.local_path || existingScene.local_path || undefined,
-      })
-      ElMessage.success(`「${item.location || '场景'}」已更新到本集`)
-    } else {
-      await sceneAPI.create({
-        drama_id: store.dramaId,
-        episode_id: currentEpisodeId.value,
-        location: item.location || '',
-        time: item.time || '',
-        prompt: item.prompt || '',
-        image_url: item.image_url || undefined,
-        local_path: item.local_path || undefined,
-      })
-      ElMessage.success(`「${item.location || '场景'}」已加入本集`)
-    }
-    await loadDrama()
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingSceneFromLibraryId.value = null
-  }
-}
-
-// 从本剧道具库加入本集
-async function onAddPropFromLibrary(item) {
-  if (!store.dramaId || !currentEpisodeId.value) return
-  addingPropFromLibraryId.value = item.id
-  try {
-    const existingProp = (store.props || []).find((p) => p.name === item.name)
-    if (existingProp) {
-      await propAPI.update(existingProp.id, {
-        name: item.name || existingProp.name,
-        type: item.type || existingProp.type || undefined,
-        description: item.description || existingProp.description || undefined,
-        prompt: item.prompt || existingProp.prompt || undefined,
-        image_url: item.image_url || existingProp.image_url || undefined,
-        local_path: item.local_path || existingProp.local_path || undefined,
-      })
-      ElMessage.success(`「${item.name || '道具'}」已更新到本集`)
-    } else {
-      await propAPI.create({
-        drama_id: store.dramaId,
-        episode_id: currentEpisodeId.value,
-        name: item.name || '',
-        type: item.type || undefined,
-        description: item.description || undefined,
-        prompt: item.prompt || undefined,
-        image_url: item.image_url || undefined,
-        local_path: item.local_path || undefined,
-      })
-      ElMessage.success(`「${item.name || '道具'}」已加入本集`)
-    }
-    await loadDrama()
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingPropFromLibraryId.value = null
-  }
-}
-
-async function loadPropLibraryList() {
-  propLibraryLoading.value = true
-  try {
-    const res = await propLibraryAPI.list({
-      drama_id: dramaId.value,
-      page: propLibraryPage.value,
-      page_size: propLibraryPageSize.value,
-      keyword: propLibraryKeyword.value || undefined
-    })
-    propLibraryList.value = res?.items ?? []
-    const pagination = res?.pagination ?? {}
-    propLibraryTotal.value = pagination.total ?? 0
-    if (pagination.page != null) propLibraryPage.value = pagination.page
-    if (pagination.page_size != null) propLibraryPageSize.value = pagination.page_size
-  } catch (e) {
-    propLibraryList.value = []
-  } finally {
-    propLibraryLoading.value = false
-  }
-}
-function debouncedLoadPropLibrary() {
-  if (propLibraryKeywordTimer) clearTimeout(propLibraryKeywordTimer)
-  propLibraryKeywordTimer = setTimeout(() => {
-    propLibraryPage.value = 1
-    loadPropLibraryList()
-  }, 300)
-}
-function openEditPropLibrary(item) {
-  editPropLibraryForm.value = {
-    id: item.id,
-    name: item.name ?? '',
-    category: item.category ?? '',
-    description: item.description ?? '',
-    tags: item.tags ?? ''
-  }
-  showEditPropLibrary.value = true
-}
-async function submitEditPropLibrary() {
-  if (!editPropLibraryForm.value?.id) return
-  editPropLibrarySaving.value = true
-  try {
-    await propLibraryAPI.update(editPropLibraryForm.value.id, {
-      name: editPropLibraryForm.value.name,
-      category: editPropLibraryForm.value.category || null,
-      description: editPropLibraryForm.value.description || null,
-      tags: editPropLibraryForm.value.tags || null
-    })
-    ElMessage.success('已保存')
-    showEditPropLibrary.value = false
-    loadPropLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    editPropLibrarySaving.value = false
-  }
-}
-async function onDeletePropLibrary(item) {
-  try {
-    await ElMessageBox.confirm(`确定删除公共道具「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消'
-    })
-    await propLibraryAPI.delete(item.id)
-    ElMessage.success('已删除')
-    loadPropLibraryList()
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-async function onAddPropToLibrary(prop) {
-  if (!hasAssetImage(prop)) { ElMessage.warning('请先为该道具生成或上传图片'); return }
-  addingPropToLibraryId.value = prop.id
-  try {
-    await propAPI.addToLibrary(prop.id, {})
-    ElMessage.success('已加入本剧道具库')
-    if (showPropLibrary.value) loadPropLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingPropToLibraryId.value = null
-  }
-}
-async function onAddPropToMaterialLibrary(prop) {
-  if (!hasAssetImage(prop)) { ElMessage.warning('请先为该道具生成或上传图片'); return }
-  addingPropToMaterialId.value = prop.id
-  try {
-    await propAPI.addToMaterialLibrary(prop.id)
-    ElMessage.success('已加入全局素材库')
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingPropToMaterialId.value = null
-  }
-}
-
-async function loadSceneLibraryList() {
-  sceneLibraryLoading.value = true
-  try {
-    const res = await sceneLibraryAPI.list({
-      drama_id: dramaId.value,
-      page: sceneLibraryPage.value,
-      page_size: sceneLibraryPageSize.value,
-      keyword: sceneLibraryKeyword.value || undefined
-    })
-    sceneLibraryList.value = res?.items ?? []
-    const pagination = res?.pagination ?? {}
-    sceneLibraryTotal.value = pagination.total ?? 0
-    if (pagination.page != null) sceneLibraryPage.value = pagination.page
-    if (pagination.page_size != null) sceneLibraryPageSize.value = pagination.page_size
-  } catch (e) {
-    sceneLibraryList.value = []
-  } finally {
-    sceneLibraryLoading.value = false
-  }
-}
-function debouncedLoadSceneLibrary() {
-  if (sceneLibraryKeywordTimer) clearTimeout(sceneLibraryKeywordTimer)
-  sceneLibraryKeywordTimer = setTimeout(() => {
-    sceneLibraryPage.value = 1
-    loadSceneLibraryList()
-  }, 300)
-}
-function openEditSceneLibrary(item) {
-  editSceneLibraryForm.value = {
-    id: item.id,
-    location: item.location ?? '',
-    time: item.time ?? '',
-    category: item.category ?? '',
-    description: item.description ?? '',
-    tags: item.tags ?? ''
-  }
-  showEditSceneLibrary.value = true
-}
-async function submitEditSceneLibrary() {
-  if (!editSceneLibraryForm.value?.id) return
-  editSceneLibrarySaving.value = true
-  try {
-    await sceneLibraryAPI.update(editSceneLibraryForm.value.id, {
-      location: editSceneLibraryForm.value.location,
-      time: editSceneLibraryForm.value.time || null,
-      category: editSceneLibraryForm.value.category || null,
-      description: editSceneLibraryForm.value.description || null,
-      tags: editSceneLibraryForm.value.tags || null
-    })
-    ElMessage.success('已保存')
-    showEditSceneLibrary.value = false
-    loadSceneLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    editSceneLibrarySaving.value = false
-  }
-}
-async function onDeleteSceneLibrary(item) {
-  try {
-    const name = (item.location || item.time || '未命名').slice(0, 20)
-    await ElMessageBox.confirm(`确定删除公共场景「${name}」吗？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消'
-    })
-    await sceneLibraryAPI.delete(item.id)
-    ElMessage.success('已删除')
-    loadSceneLibraryList()
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-async function onAddSceneToLibrary(scene) {
-  if (!hasAssetImage(scene)) { ElMessage.warning('请先为该场景生成或上传图片'); return }
-  addingSceneToLibraryId.value = scene.id
-  try {
-    await sceneAPI.addToLibrary(scene.id, {})
-    ElMessage.success('已加入本剧场景库')
-    if (showSceneLibrary.value) loadSceneLibraryList()
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingSceneToLibraryId.value = null
-  }
-}
-async function onAddSceneToMaterialLibrary(scene) {
-  if (!hasAssetImage(scene)) { ElMessage.warning('请先为该场景生成或上传图片'); return }
-  addingSceneToMaterialId.value = scene.id
-  try {
-    await sceneAPI.addToMaterialLibrary(scene.id)
-    ElMessage.success('已加入全局素材库')
-  } catch (e) {
-    ElMessage.error(e.message || '加入失败')
-  } finally {
-    addingSceneToMaterialId.value = null
-  }
-}
-
-async function onGenerateCharacterImage(char) {
-  char.errorMsg = ''
-  char.error_msg = ''
-  generatingCharIds.add(char.id)
-  try {
-    const res = await characterAPI.generateImage(char.id, undefined, getSelectedStyle())
-    const taskId = res?.image_generation?.task_id ?? res?.task_id
-    if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama())
-      if (pollRes?.status === 'failed') {
-        char.errorMsg = pollRes.error || '生成失败'
-      } else {
-        ElMessage.success('角色图片已生成')
-      }
-    } else {
-      await loadDrama()
-      await pollUntilResourceHasImage(() => {
-        const list = store.drama?.characters ?? store.currentEpisode?.characters ?? []
-        const c = list.find((x) => Number(x.id) === Number(char.id))
-        return !!(c && (c.image_url || c.local_path))
-      })
-      ElMessage.success('角色图片已生成')
-    }
-  } catch (e) {
-    console.error(e)
-    char.errorMsg = e.message || '生成失败'
-    ElMessage.error(e.message || '提交失败')
-  } finally {
-    generatingCharIds.delete(char.id)
-  }
-}
-
-async function onExtractProps() {
-  if (!currentEpisodeId.value) {
-    ElMessage.warning('请先完成剧本并保存')
-    return
-  }
-  propsExtracting.value = true
-  try {
-    const res = await propAPI.extractFromScript(currentEpisodeId.value)
-    const taskId = res?.task_id
-    if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama())
-      if (pollRes?.status !== 'failed') {
-        ElMessage.success('道具提取完成')
-      }
-    } else {
-      await loadDrama()
-      ElMessage.success('道具提取任务已提交')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败')
-  } finally {
-    propsExtracting.value = false
-  }
-}
-
-function stopPropPromptPoll() {
-  if (editPropPollTimer) { clearInterval(editPropPollTimer); editPropPollTimer = null }
-}
-
-function editProp(prop) {
-  stopPropPromptPoll()
-  editPropForm.value = {
-    id: prop.id,
-    name: prop.name || '',
-    type: prop.type || '',
-    description: prop.description || '',
-    prompt: prop.prompt || '',
-    image_url: prop.image_url || '',
-    local_path: prop.local_path || '',
-    ref_image: prop.ref_image || '',
-  }
-  showEditProp.value = true
-  if (!prop.prompt && prop.id && prop.description) {
-    editPropPromptGenerating.value = true
-    let elapsed = 0
-    editPropPollTimer = setInterval(async () => {
-      elapsed += 3
-      try {
-        const res = await propAPI.get(prop.id)
-        const p = res?.prop?.prompt
-        if (p) {
-          if (editPropForm.value?.id === prop.id) editPropForm.value.prompt = p
-          stopPropPromptPoll(); editPropPromptGenerating.value = false
-        } else if (elapsed >= 60) {
-          stopPropPromptPoll(); editPropPromptGenerating.value = false
-        }
-      } catch (_) { stopPropPromptPoll(); editPropPromptGenerating.value = false }
-    }, 3000)
-  }
-}
-
-async function doGeneratePropPrompt() {
-  const form = editPropForm.value
-  if (!form?.id) return
-  editPropPromptGenerating.value = true
-  try {
-    const res = await propAPI.generatePrompt(form.id)
-    if (res?.prompt) { form.prompt = res.prompt; ElMessage.success('提示词已生成') }
-  } catch (e) {
-    ElMessage.error(e.message || '生成提示词失败')
-  } finally {
-    editPropPromptGenerating.value = false
-  }
-}
-
-/** 上传临时参考图并保存到道具的 ref_image 字段 */
-async function savePropRefImageIfAny(propId) {
-  const refImg = addPropRefImage.value
-  if (!refImg || !propId) return
-  try {
-    const file = dataUrlToFile(refImg.dataUrl, refImg.filename || 'reference.png')
-    const uploadRes = await uploadAPI.uploadImage(file)
-    const refPath = uploadRes.local_path || uploadRes.url || ''
-    await propAPI.putRefImage(propId, refPath)
-  } catch (e) {
-    console.warn('[savePropRefImage] 保存参考图失败:', e.message)
-  }
-}
-
-async function clearPropRefImage() {
-  const form = editPropForm.value
-  if (!form?.id) return
-  try {
-    await propAPI.putRefImage(form.id, null)
-    form.ref_image = ''
-    ElMessage.success('参考图已移除')
-  } catch (e) {
-    ElMessage.error('移除失败')
-  }
-}
-
-async function doExtractPropFromImage() {
-  const form = editPropForm.value
-  if (!form?.id) return
-  extractingPropDesc.value = true
-  try {
-    const res = await propAPI.extractFromImage(form.id)
-    if (res?.description) {
-      form.description = res.description
-      ElMessage.success('已从图片提取道具描述')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败，请检查道具是否已上传参考图片')
-  } finally {
-    extractingPropDesc.value = false
-  }
-}
-
-async function submitEditProp() {
-  if (!editPropForm.value?.id) return
-  editPropSaving.value = true
-  try {
-    await propAPI.update(editPropForm.value.id, {
-      name: editPropForm.value.name?.trim(),
-      type: editPropForm.value.type || undefined,
-      description: editPropForm.value.description || undefined,
-      prompt: editPropForm.value.prompt || undefined
-    })
-    await savePropRefImageIfAny(editPropForm.value.id)
-    await loadDrama()
-    showEditProp.value = false
-    ElMessage.success('道具已保存')
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    editPropSaving.value = false
-  }
-}
-
-async function onDeleteProp(prop) {
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除道具「${(prop.name || '未命名').slice(0, 20)}」吗？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-    )
-    await propAPI.delete(prop.id)
-    await loadDrama()
-    ElMessage.success('道具已删除')
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-
-async function onGeneratePropImage(prop) {
-  prop.errorMsg = ''
-  prop.error_msg = ''
-  generatingPropIds.add(prop.id)
-  try {
-    const model = undefined
-    const res = await propAPI.generateImage(prop.id, model, getSelectedStyle())
-    const taskId = res?.task_id
-    if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama())
-      if (pollRes?.status === 'failed') {
-        prop.errorMsg = pollRes.error || '生成失败'
-      } else {
-        ElMessage.success('道具图片已生成')
-      }
-    } else {
-      await loadDrama()
-      await pollUntilResourceHasImage(() => {
-        const list = store.drama?.props ?? store.currentEpisode?.props ?? []
-        const p = list.find((x) => Number(x.id) === Number(prop.id))
-        return !!(p && (p.image_url || p.local_path))
-      })
-      ElMessage.success('道具图片已生成')
-    }
-  } catch (e) {
-    console.error(e)
-    prop.errorMsg = e.message || '生成失败'
-    ElMessage.error(e.message || '提交失败')
-  } finally {
-    generatingPropIds.delete(prop.id)
-  }
-}
-
-async function onExtractScenes() {
-  if (!currentEpisodeId.value) return
-  scenesExtracting.value = true
-  try {
-    const res = await dramaAPI.extractBackgrounds(currentEpisodeId.value, {
-      model: undefined,
-      style: getSelectedStyle(),
-      language: scriptLanguage.value
-    })
-    const taskId = res?.task_id
-    if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama())
-      if (pollRes?.status !== 'failed') {
-        ElMessage.success('场景提取完成')
-      }
-    } else {
-      await loadDrama()
-      ElMessage.success('场景提取任务已提交')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败')
-  } finally {
-    scenesExtracting.value = false
-  }
-}
-
-function openAddScene() {
-  editSceneForm.value = {
-    location: '',
-    time: '',
-    prompt: ''
-  }
-  showEditScene.value = true
-}
-
-function stopScenePromptPoll() {
-  if (editScenePollTimer) { clearInterval(editScenePollTimer); editScenePollTimer = null }
-}
-
-function editScene(scene) {
-  stopScenePromptPoll()
-  editSceneForm.value = {
-    id: scene.id,
-    location: scene.location || '',
-    time: scene.time || '',
-    prompt: scene.prompt || '',
-    polished_prompt: scene.polished_prompt || '',
-    image_url: scene.image_url || '',
-    local_path: scene.local_path || '',
-    ref_image: scene.ref_image || '',
-  }
-  showEditScene.value = true
-  // polished_prompt 为空时轮询等待后台异步生成
-  if (!scene.polished_prompt && scene.id && (scene.location || scene.time)) {
-    editScenePromptGenerating.value = true
-    let elapsed = 0
-    editScenePollTimer = setInterval(async () => {
-      elapsed += 3
-      try {
-        const res = await sceneAPI.get(scene.id)
-        const p = res?.scene?.polished_prompt
-        if (p) {
-          if (editSceneForm.value?.id === scene.id) editSceneForm.value.polished_prompt = p
-          stopScenePromptPoll(); editScenePromptGenerating.value = false
-        } else if (elapsed >= 60) {
-          stopScenePromptPoll(); editScenePromptGenerating.value = false
-        }
-      } catch (_) { stopScenePromptPoll(); editScenePromptGenerating.value = false }
-    }, 3000)
-  }
-}
-
-async function doGenerateScenePrompt() {
-  const form = editSceneForm.value
-  if (!form?.id) return
-  editScenePromptGenerating.value = true
-  try {
-    const res = await sceneAPI.generatePrompt(form.id)
-    if (res?.polished_prompt) { form.polished_prompt = res.polished_prompt; ElMessage.success('提示词已生成') }
-  } catch (e) {
-    ElMessage.error(e.message || '生成提示词失败')
-  } finally {
-    editScenePromptGenerating.value = false
-  }
-}
-
-/** 上传临时参考图并保存到场景的 ref_image 字段 */
-async function saveSceneRefImageIfAny(sceneId) {
-  const refImg = addSceneRefImage.value
-  if (!refImg || !sceneId) return
-  try {
-    const file = dataUrlToFile(refImg.dataUrl, refImg.filename || 'reference.png')
-    const uploadRes = await uploadAPI.uploadImage(file)
-    const refPath = uploadRes.local_path || uploadRes.url || ''
-    await sceneAPI.putRefImage(sceneId, refPath)
-  } catch (e) {
-    console.warn('[saveSceneRefImage] 保存参考图失败:', e.message)
-  }
-}
-
-async function clearSceneRefImage() {
-  const form = editSceneForm.value
-  if (!form?.id) return
-  try {
-    await sceneAPI.putRefImage(form.id, null)
-    form.ref_image = ''
-    ElMessage.success('参考图已移除')
-  } catch (e) {
-    ElMessage.error('移除失败')
-  }
-}
-
-async function doExtractSceneFromImage() {
-  const form = editSceneForm.value
-  if (!form?.id) return
-  extractingSceneDesc.value = true
-  try {
-    const res = await sceneAPI.extractFromImage(form.id)
-    if (res?.prompt) {
-      form.prompt = res.prompt
-      ElMessage.success('已从图片提取场景描述')
-    }
-  } catch (e) {
-    ElMessage.error(e.message || '提取失败，请检查场景是否已上传参考图片')
-  } finally {
-    extractingSceneDesc.value = false
-  }
-}
-
-async function submitEditScene() {
-  const form = editSceneForm.value
-  if (!form?.location?.trim() || !store.dramaId) return
-  editSceneSaving.value = true
-  try {
-    if (form.id) {
-      await sceneAPI.update(form.id, {
-        location: form.location.trim(),
-        time: form.time || undefined,
-        prompt: form.prompt || undefined,
-        polished_prompt: form.polished_prompt || undefined
-      })
-      await saveSceneRefImageIfAny(form.id)
-      ElMessage.success('场景已保存')
-    } else {
-      await sceneAPI.create({
-        drama_id: store.dramaId,
-        location: form.location.trim(),
-        time: form.time || undefined,
-        prompt: form.prompt || undefined
-      })
-      // 新增场景后找到 ID 保存参考图
-      await loadDrama()
-      if (addSceneRefImage.value) {
-        const newScene = (store.drama?.scenes || []).find(
-          s => s.location === form.location.trim() && (s.time || '') === (form.time || '')
-        )
-        if (newScene?.id) await saveSceneRefImageIfAny(newScene.id)
-      }
-      ElMessage.success('场景已添加')
-    }
-    await loadDrama()
-    showEditScene.value = false
-  } catch (e) {
-    ElMessage.error(e.message || (form.id ? '保存失败' : '添加失败'))
-  } finally {
-    editSceneSaving.value = false
-  }
-}
-
-async function onDeleteScene(scene) {
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除场景「${(scene.location || scene.time || '未命名').slice(0, 20)}」吗？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-    )
-    await sceneAPI.delete(scene.id)
-    await loadDrama()
-    ElMessage.success('场景已删除')
-  } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-
-async function onGenerateSceneImage(scene) {
-  scene.errorMsg = ''
-  scene.error_msg = ''
-  generatingSceneIds.add(scene.id)
-  try {
-    const res = await sceneAPI.generateImage({
-      scene_id: scene.id,
-      model: undefined,
-      style: getSelectedStyle()
-    })
-    const taskId = res?.image_generation?.task_id ?? res?.task_id
-    if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama())
-      if (pollRes?.status === 'failed') {
-        scene.errorMsg = pollRes.error || '生成失败'
-      } else {
-        ElMessage.success('场景图片已生成')
-      }
-    } else {
-      await loadDrama()
-      await pollUntilResourceHasImage(() => {
-        const list = store.drama?.scenes ?? store.currentEpisode?.scenes ?? []
-        const s = list.find((x) => Number(x.id) === Number(scene.id))
-        return !!(s && (s.image_url || s.local_path))
-      })
-      ElMessage.success('场景图片已生成')
-    }
-  } catch (e) {
-    console.error(e)
-    scene.errorMsg = e.message || '生成失败'
-    ElMessage.error(e.message || '提交失败')
-  } finally {
-    generatingSceneIds.delete(scene.id)
-  }
-}
-
-/** 获取该分镜首图 URL，供视频生成接口使用（优先已完成图，否则 composed_image） */
 function getSbFirstFrameUrl(sb) {
   const img = getSbImage(sb.id)
   if (img && (img.image_url || img.local_path)) return assetImageUrl(img)
   if (sb.composed_image || sb.image_url) return imageUrl(sb.composed_image || sb.image_url)
   return ''
+}
+
+/** 获取分镜主图的本地路径（用于超分辨率判断） */
+function getSbLocalImage(sb) {
+  const img = getSbImage(sb.id)
+  return img?.local_path || sb.local_path || null
+}
+
+/**
+ * P0-1: 从视频 URL 捕获末帧（浏览器 canvas 方案）
+ * 返回 Blob（JPEG），失败返回 null
+ */
+async function captureVideoLastFrame(videoUrl) {
+  return new Promise((resolve) => {
+    if (!videoUrl) return resolve(null)
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.muted = true
+    video.preload = 'metadata'
+    let captured = false
+    const timeout = setTimeout(() => { if (!captured) resolve(null) }, 12000)
+    video.addEventListener('error', () => { clearTimeout(timeout); if (!captured) resolve(null) })
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = Math.max(0, video.duration - 0.5)
+    })
+    video.addEventListener('seeked', () => {
+      if (captured) return
+      captured = true
+      clearTimeout(timeout)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth || 512
+        canvas.height = video.videoHeight || 288
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(video, 0, 0)
+        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85)
+      } catch (_) {
+        resolve(null)
+      }
+    })
+    video.src = videoUrl
+  })
+}
+
+/** P0-3: 对分镜图执行超分辨率（2x） */
+async function onUpscaleSbImage(sb) {
+  if (!sb?.id || upscalingSbIds.has(sb.id)) return
+  upscalingSbIds.add(sb.id)
+  try {
+    await storyboardsAPI.upscale(sb.id)
+    ElMessage.success('超分完成，图片已更新为高清版本')
+    await loadSingleStoryboardMedia(sb.id)
+  } catch (e) {
+    ElMessage.error(e.message || '超分辨率失败')
+  } finally {
+    upscalingSbIds.delete(sb.id)
+  }
+}
+
+/** P2-4: 为分镜对白生成 TTS 配音 */
+async function onTtsSbDialogue(sb) {
+  if (!sb?.id || ttsSbIds.has(sb.id)) return
+  if (!sb.dialogue?.trim()) {
+    ElMessage.warning('该分镜没有对白内容')
+    return
+  }
+  ttsSbIds.add(sb.id)
+  try {
+    const res = await fetch('/api/v1/audio/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storyboard_id: sb.id, text: sb.dialogue }),
+    })
+    const data = await res.json()
+    if (!res.ok || data.code !== 200) throw new Error(data.message || '配音失败')
+    if (data.data?.local_path) {
+      sbAudioPaths.value = { ...sbAudioPaths.value, [sb.id]: data.data.local_path }
+      ElMessage.success('配音已生成')
+    }
+  } catch (e) {
+    ElMessage.error(e.message || 'TTS 配音失败')
+  } finally {
+    ttsSbIds.delete(sb.id)
+  }
+}
+
+/** P2-3: 生成场景多视角图 */
+async function onGenerateSceneMultiView(scene) {
+  if (!scene?.id || generatingSceneMultiViewIds.has(scene.id)) return
+  generatingSceneMultiViewIds.add(scene.id)
+  try {
+    const { sceneAPI: sceneAPIMultiView } = await import('@/api/scenes')
+    const res = await sceneAPIMultiView.generateFourViewImage(scene.id)
+    if (res?.image_generation?.id) {
+      ElMessage.success('多视角生成任务已提交，稍后刷新查看结果')
+    } else {
+      ElMessage.success('多视角生成任务已提交')
+    }
+    await loadDrama()
+  } catch (e) {
+    ElMessage.error(e.message || '多视角生成失败')
+  } finally {
+    generatingSceneMultiViewIds.delete(scene.id)
+  }
 }
 
 /** 为视频生成获取参考图的真实 URL */
@@ -4970,8 +3983,11 @@ async function startBatchVideoGeneration() {
       return
     }
     batchVideoProgress.value = { current: 0, total: todo.length, failed: 0 }
-    const videoConcurrency = pipelineVideoConcurrency.value || 2
+    const contiguity = videoFrameContiguity.value
+    // 连贯帧模式强制顺序（concurrency=1），普通模式并发
+    const videoConcurrency = contiguity ? 1 : (pipelineVideoConcurrency.value || 2)
     let videoDoneCount = 0
+    let prevVideoItem = null  // 连贯帧：保存上一条已完成的视频记录
 
     let videoQueueIdx = 0
     const videoWorker = async () => {
@@ -4993,11 +4009,31 @@ async function startBatchVideoGeneration() {
           }
           const firstFrameUrl = await getMainImageUrlForVideo(sb)
           const absoluteUrl = toAbsoluteImageUrl(firstFrameUrl)
+          // 连贯帧：提取上一条视频末帧作为参考
+          let contiguityFirstFrameUrl = absoluteUrl
+          if (contiguity && prevVideoItem) {
+            const prevVideoUrl = prevVideoItem.local_path
+              ? toAbsoluteImageUrl('/static/' + prevVideoItem.local_path.replace(/^\//, ''))
+              : prevVideoItem.video_url
+            if (prevVideoUrl) {
+              try {
+                const lastFrameBlob = await captureVideoLastFrame(prevVideoUrl)
+                if (lastFrameBlob) {
+                  const file = new File([lastFrameBlob], 'continuity_frame.jpg', { type: 'image/jpeg' })
+                  const uploadRes = await uploadAPI.uploadImage(file)
+                  if (uploadRes?.local_path) {
+                    contiguityFirstFrameUrl = toAbsoluteImageUrl('/static/' + uploadRes.local_path.replace(/^\//, ''))
+                  }
+                }
+              } catch (_) {}
+            }
+          }
           const res = await videosAPI.create({
             drama_id: dramaId.value,
             storyboard_id: sb.id,
             prompt: sb.video_prompt,
-            image_url: absoluteUrl || undefined,
+            image_url: contiguityFirstFrameUrl || undefined,
+            first_frame_url: contiguityFirstFrameUrl || undefined,
             reference_image_urls: absoluteUrl ? [absoluteUrl] : undefined,
             style: getSelectedStyle(),
             aspect_ratio: projectAspectRatio.value,
@@ -5009,13 +4045,23 @@ async function startBatchVideoGeneration() {
             if (pollRes?.status === 'failed') {
               batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${pollRes.error || '生成失败'}`)
               batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
+              prevVideoItem = null
+            } else if (contiguity && pollRes?.status === 'completed') {
+              // 连贯帧：保存本条视频用于下一条
+              const vList = sbVideos.value[sb.id] || []
+              prevVideoItem = vList.find((v) => v.status === 'completed') || null
             }
           } else {
             await loadSingleStoryboardMedia(sb.id)
+            if (contiguity) {
+              const vList = sbVideos.value[sb.id] || []
+              prevVideoItem = vList.find((v) => v.status === 'completed') || null
+            }
           }
         } catch (e) {
           batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${e.message || '提交失败'}`)
           batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
+          if (contiguity) prevVideoItem = null
         }
         videoDoneCount++
         batchVideoProgress.value = { ...batchVideoProgress.value, current: videoDoneCount }
@@ -5900,36 +4946,11 @@ async function runRepairPipeline() {
   }
 }
 
-async function submitAddProp() {
-  const name = (addPropForm.value.name || '').trim()
-  if (!name || !store.dramaId) return
-  addPropSaving.value = true
-  try {
-    await propAPI.create({
-      drama_id: store.dramaId,
-      episode_id: currentEpisodeId.value ?? undefined,
-      name,
-      type: addPropForm.value.type?.trim() || undefined,
-      description: addPropForm.value.description?.trim() || undefined,
-      prompt: addPropForm.value.prompt?.trim() || undefined
-    })
-    showAddProp.value = false
-    await loadDrama()
-    ElMessage.success('道具已添加')
-  } catch (e) {
-    ElMessage.error(e.message || '添加失败')
-  } finally {
-    addPropSaving.value = false
-  }
-}
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', _syncNavCollapse)
 })
 
 onMounted(() => {
-  _syncNavCollapse()
-  window.addEventListener('resize', _syncNavCollapse)
   loadPipelineConcurrency()
   const id = route.params.id
   if (id && id !== 'new') {

@@ -26,6 +26,18 @@ const router = createRouter({
       name: 'ai-config',
       component: () => import('@/views/AiConfig.vue'),
       meta: { title: 'AI 配置' }
+    },
+    {
+      path: '/free-create',
+      name: 'free-create',
+      component: () => import('@/views/FreeCreate.vue'),
+      meta: { title: '自由创作' }
+    },
+    {
+      path: '/media-library',
+      name: 'media-library',
+      component: () => import('@/views/MediaLibrary.vue'),
+      meta: { title: '媒体素材库' }
     }
   ]
 })

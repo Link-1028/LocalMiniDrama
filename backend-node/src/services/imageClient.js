@@ -434,14 +434,26 @@ async function callNanoBananaImageApi(config, log, opts) {
   let submitUrl;
   let body;
   if (isProxyMode) {
-    // 代理模式：用配置的 endpoint，不区分模型，通用结构
     submitUrl = base + cfgEp;
-    body = {
-      prompt: prompt || '',
-      imageUrls: refs,
-      aspectRatio: aspectRatio === 'auto' ? '16:9' : aspectRatio,
-      resolution: '1K',
-    };
+    const isNativeBananaModel = m.startsWith('nano-banana');
+    if (isNativeBananaModel) {
+      // FAL 代理等：转发 nano-banana 模型，使用 camelCase 字段
+      body = {
+        prompt: prompt || '',
+        imageUrls: refs,
+        aspectRatio: aspectRatio === 'auto' ? '16:9' : aspectRatio,
+        resolution: '1K',
+      };
+    } else {
+      // 通用代理（如 dmiapi）：模型名直接透传，使用 snake_case 字段
+      body = {
+        model: model || '',
+        prompt: prompt || '',
+        aspect_ratio: aspectRatio === 'auto' ? '16:9' : (aspectRatio || ''),
+        image_size: '1K',
+        ...(refs.length > 0 ? { imageUrls: refs } : {}),
+      };
+    }
   } else if (m === 'nano-banana-2') {
     submitUrl = base + '/api/v1/nanobanana/generate-2';
     body = {
@@ -517,17 +529,20 @@ async function callNanoBananaImageApi(config, log, opts) {
   }
 
   // 兼容同步代理响应：部分代理直接返回图片 URL，无需轮询
+  // 也兼容提交即完成的响应（state=succeeded + data.data.images[0].url）
   const directImageUrl = submitData?.images?.[0]?.url
     || submitData?.image?.url
     || submitData?.image_url
     || submitData?.data?.url
-    || submitData?.url;
+    || submitData?.url
+    || (submitData?.data?.state === 'succeeded' ? submitData?.data?.data?.images?.[0]?.url : null);
   if (directImageUrl) {
     log.info('NanoBanana image (synchronous proxy response)', { image_gen_id });
     return { image_url: directImageUrl };
   }
 
-  const taskId = submitData?.data?.taskId || submitData?.request_id || submitData?.taskId;
+  // task_id 兼容驼峰（taskId）和下划线（task_id）两种格式
+  const taskId = submitData?.data?.taskId || submitData?.data?.task_id || submitData?.request_id || submitData?.taskId;
   if (!taskId) {
     const msg = submitData?.msg || submitData?.message || '未返回任务ID';
     log.warn('NanoBanana no taskId in response', { image_gen_id, raw_preview: submitRaw.slice(0, 300) });
@@ -558,20 +573,23 @@ async function callNanoBananaImageApi(config, log, opts) {
       if (!queryRes.ok) continue;
       const queryData = JSON.parse(await queryRes.text());
       const successFlag = queryData?.data?.successFlag;
-      if (successFlag === 1) {
-        const imageUrl = queryData?.data?.response?.resultImageUrl || queryData?.data?.response?.originImageUrl;
+      const state = queryData?.data?.state; // 兼容 state="succeeded"/"failed"/"pending" 格式
+      if (successFlag === 1 || state === 'succeeded') {
+        const imageUrl = queryData?.data?.response?.resultImageUrl
+          || queryData?.data?.response?.originImageUrl
+          || queryData?.data?.data?.images?.[0]?.url; // 兼容 {data:{data:{images:[{url}]}}} 格式
         if (imageUrl) {
           log.info('NanoBanana image completed', { image_gen_id, task_id: taskId });
           return { image_url: imageUrl };
         }
         return { error: '未返回图片地址' };
       }
-      if (successFlag === 2 || successFlag === 3) {
-        const errMsg = queryData?.data?.errorMessage || '任务失败';
-        log.warn('NanoBanana task failed', { image_gen_id, task_id: taskId, successFlag, error_message: errMsg });
+      if (successFlag === 2 || successFlag === 3 || state === 'failed') {
+        const errMsg = queryData?.data?.errorMessage || queryData?.data?.msg || '任务失败';
+        log.warn('NanoBanana task failed', { image_gen_id, task_id: taskId, successFlag, state, error_message: errMsg });
         return { error: 'NanoBanana 生成失败: ' + errMsg };
       }
-      // successFlag === 0：生成中，继续轮询
+      // successFlag === 0 / state = 'pending'|'processing'：生成中，继续轮询
     } catch (e) {
       log.warn('NanoBanana poll request failed', { attempt, error: e.message, image_gen_id });
     }

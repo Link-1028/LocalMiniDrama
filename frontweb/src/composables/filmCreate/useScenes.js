@@ -210,6 +210,7 @@ export function useScenes(deps) {
       } else {
         await sceneAPI.create({
           drama_id: store.dramaId,
+          episode_id: currentEpisodeId.value || undefined,
           location: form.location.trim(),
           time: form.time || undefined,
           prompt: form.prompt || undefined

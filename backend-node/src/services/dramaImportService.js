@@ -108,6 +108,17 @@ function importDrama(db, cfg, log, zipBuffer) {
   let metadata = d.metadata || {};
   const metaStr = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
 
+  // 用事务包裹全部写入：任何步骤失败时整体回滚，避免部分导入
+  let result;
+  const runImport = db.transaction(() => {
+    result = _doImport(db, storagePath, files, data, d, title, metaStr, now, log);
+  });
+  runImport();
+  return result;
+}
+
+function _doImport(db, storagePath, files, data, d, title, metaStr, now, log) {
+
   // ---- 创建 drama ----
   const dramaInfo = db.prepare(
     `INSERT INTO dramas (title, description, genre, style, status, tags, metadata, created_at, updated_at)
@@ -180,24 +191,26 @@ function importDrama(db, cfg, log, zipBuffer) {
     const info = db.prepare(
       `INSERT INTO scenes (drama_id, episode_id, location, time, prompt, local_path, extra_images, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(dramaId, epId, s.location || null, s.time || null, s.prompt || '', localPath, extraImagesJson, now, now);
+    ).run(dramaId, epId, s.location || '', s.time || '', s.prompt || '', localPath, extraImagesJson, now, now);
     sceneNewIds.push(info.lastInsertRowid);
     sceneDedupeMap.set(dedupeKey, info.lastInsertRowid);
   }
 
   // ---- 导入道具（带 episode_id） ----
+  const propNewIds = []; // 按导出顺序保存新道具 id，用于恢复 storyboard_props
   for (const p of (data.props || [])) {
-    if (!p.name) continue;
+    if (!p.name) { propNewIds.push(null); continue; }
     const epIdx = p.episode_index;
     const epId = (epIdx != null && epIdx >= 0 && episodeIdList[epIdx])
       ? episodeIdList[epIdx]
       : (episodeIdList[0] || null);
     const localPath = saveMediaFile(storagePath, 'images', files, p.image_file, 'prop_imp');
     const extraImagesJson = saveExtraImages(storagePath, 'images', files, p.extra_image_files, 'prop_extra_imp');
-    db.prepare(
+    const pInfo = db.prepare(
       `INSERT INTO props (drama_id, episode_id, name, type, description, prompt, local_path, extra_images, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(dramaId, epId, p.name, p.type || null, p.description || null, p.prompt || null, localPath, extraImagesJson, now, now);
+    propNewIds.push(pInfo.lastInsertRowid);
   }
 
   // ---- 导入分镜 ----
@@ -220,6 +233,12 @@ function importDrama(db, cfg, log, zipBuffer) {
       const sbSceneId = (sb.scene_index != null && sceneNewIds[sb.scene_index])
         ? sceneNewIds[sb.scene_index]
         : null;
+
+      // 还原 prop_ids：从导出时记录的下标映射回新 ID
+      const propIndices = Array.isArray(sb.prop_indices) ? sb.prop_indices : [];
+      const sbPropNewIds = propIndices
+        .map(idx => propNewIds[idx])
+        .filter(id => id != null);
 
       const sbInfo = db.prepare(
         `INSERT INTO storyboards (episode_id, scene_id, storyboard_number, title, description, location, time, dialogue, action, atmosphere, result, shot_type, angle, movement, image_prompt, video_prompt, duration, emotion, emotion_intensity, characters, created_at, updated_at)
@@ -249,6 +268,12 @@ function importDrama(db, cfg, log, zipBuffer) {
         now
       );
       const sbId = sbInfo.lastInsertRowid;
+
+      // 还原 storyboard_props（分镜与道具的关联）
+      if (sbPropNewIds.length > 0) {
+        const insSP = db.prepare('INSERT OR IGNORE INTO storyboard_props (storyboard_id, prop_id) VALUES (?, ?)');
+        for (const pid of sbPropNewIds) insSP.run(sbId, pid);
+      }
 
       // 导入分镜图（写入 image_generations）
       if (sbImagePath) {

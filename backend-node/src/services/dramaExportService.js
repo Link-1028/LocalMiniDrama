@@ -121,7 +121,7 @@ function exportDrama(db, cfg, log, dramaId) {
     if (kept) sceneDedupeIdMap.set(s.id, kept.id);
   }
 
-  // ---- 构建 ID → 导出数组下标 的映射（用于分镜 characters/scene_id 跨项目还原） ----
+  // ---- 构建 ID → 导出数组下标 的映射（用于分镜 characters/scene_id/prop_ids 跨项目还原） ----
   const charIdToIndex = {};
   characters.forEach((c, idx) => { charIdToIndex[c.id] = idx; });
   const sceneIdToIndex = {};
@@ -129,6 +129,22 @@ function exportDrama(db, cfg, log, dramaId) {
   // 去重丢弃的重复场景 ID 也指向保留场景的下标
   for (const [origId, keptId] of sceneDedupeIdMap.entries()) {
     if (!(origId in sceneIdToIndex)) sceneIdToIndex[origId] = sceneIdToIndex[keptId];
+  }
+  const propIdToIndex = {};
+  props.forEach((p, idx) => { propIdToIndex[p.id] = idx; });
+
+  // ---- 读取所有分镜的道具关联（storyboard_props） ----
+  const allSbIdsForProps = Object.values(storyboardsByEp).flat().map(s => s.id);
+  const sbPropIds = {}; // storyboard_id → prop_id[]
+  if (allSbIdsForProps.length > 0) {
+    const placeholders = allSbIdsForProps.map(() => '?').join(',');
+    const spRows = db.prepare(
+      `SELECT storyboard_id, prop_id FROM storyboard_props WHERE storyboard_id IN (${placeholders})`
+    ).all(...allSbIdsForProps);
+    for (const row of spRows) {
+      if (!sbPropIds[row.storyboard_id]) sbPropIds[row.storyboard_id] = [];
+      sbPropIds[row.storyboard_id].push(row.prop_id);
+    }
   }
 
   // ---- 8. 组装 project.json ----
@@ -170,6 +186,12 @@ function exportDrama(db, cfg, log, dramaId) {
           // scene_id: 存储场景在导出列表中的下标
           const sceneIndex = sb.scene_id != null ? (sceneIdToIndex[sb.scene_id] ?? null) : null;
 
+          // prop_ids: 存储道具在导出列表中的下标（storyboard_props 关联）
+          const sbPropIdList = sbPropIds[sb.id] || [];
+          const propIndices = sbPropIdList
+            .map(id => propIdToIndex[id])
+            .filter(idx => idx !== undefined);
+
           return {
             storyboard_number: sb.storyboard_number,
             title: sb.title,
@@ -190,6 +212,7 @@ function exportDrama(db, cfg, log, dramaId) {
             emotion_intensity: sb.emotion_intensity,
             character_indices: characterIndices,  // 角色下标数组
             scene_index: sceneIndex,              // 场景下标
+            prop_indices: propIndices,            // 道具下标数组（storyboard_props）
             image_file: sbImageFile,
             video_file: sbVideoFile,
           };

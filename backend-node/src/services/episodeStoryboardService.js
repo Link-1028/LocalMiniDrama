@@ -892,9 +892,10 @@ function generateStoryboard(db, log, episodeId, model, style, storyboardCount, v
     throw new Error('剧集不存在或无权限访问');
   }
 
-  // 获取剧集风格和比例（如果未指定，则从 drama 中获取）
+  // 获取剧集风格和比例（如果未指定，则从 drama metadata / style 中获取完整提示词）
   const drama = db.prepare('SELECT style, metadata FROM dramas WHERE id = ?').get(episode.drama_id);
-  const finalStyle = style || (drama && drama.style) || 'realistic';
+  const { resolvedStreamStyleFromDrama } = require('../utils/dramaStyleMerge');
+  const finalStyle = resolvedStreamStyleFromDrama(style, drama);
 
   // 图片比例 + 每镜时长：优先用传入值，再从 drama.metadata 读，最后兜底全局配置
   let dramaAspectRatio = null;

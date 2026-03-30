@@ -156,12 +156,18 @@ function routes(db, log) {
           dramaId = ep?.drama_id ?? null;
         } catch (_) {}
 
-        // 获取风格配置
+        // 画风：优先剧集 metadata（前端写入的 prompt），否则全局配置
         let style = '';
         try {
           const loadConfig = require('../config').loadConfig;
           const cfg = loadConfig();
-          style = cfg?.style?.default_style || '';
+          const { styleFieldsFromDramaRow } = require('../utils/dramaStyleMerge');
+          if (dramaId) {
+            const dr = db.prepare('SELECT style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
+            const f = styleFieldsFromDramaRow(dr);
+            style = f.en || f.zh || f.legacy || '';
+          }
+          if (!style) style = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').trim();
         } catch (_) {}
 
         // 获取前后镜头上下文（含上一镜头连戏状态快照）

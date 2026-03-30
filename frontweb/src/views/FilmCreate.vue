@@ -1925,7 +1925,7 @@ import { propLibraryAPI } from '@/api/propLibrary'
 import { generationSettingsAPI } from '@/api/prompts'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
-import { generationStyleOptions, getStylePromptEn, getStylePromptZh } from '@/constants/styleOptions'
+import { generationStyleOptions, getStylePromptEn, getStylePromptZh, stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { useNavigation } from '@/composables/filmCreate/useNavigation'
 import { useCharacters } from '@/composables/filmCreate/useCharacters'
 import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
@@ -1997,6 +1997,11 @@ function getSelectedStylePromptZh() {
   const opt = _findStyleOption(val)
   if (opt) return opt.prompt || opt.promptEn || val
   return val
+}
+
+/** 保存剧集时写入 metadata，供后端提示词使用（与 dramas.style 选项 value 对应） */
+function projectStylePromptMetadata() {
+  return stylePromptMetadataForSave(generationStyle.value)
 }
 const scriptContent = computed({
   get: () => store.scriptContent,
@@ -2926,7 +2931,8 @@ function onEpisodeSelect(epId) {
 async function loadDrama() {
   if (!store.dramaId) return
   try {
-    const d = await dramaAPI.get(store.dramaId)
+    let d = await dramaAPI.get(store.dramaId)
+    d = await backfillDramaStylePromptMetadataIfNeeded(dramaAPI, store.dramaId, d)
     store.setDrama(d)
     // 恢复「故事生成」框的梗概（项目 description 存的是故事梗概）
     storyInput.value = (d.description || '').toString().trim()
@@ -3122,7 +3128,11 @@ async function saveScriptToBackend(content) {
       description: storyInput.value?.trim() || trimmed.slice(0, 200),
       genre: storyType.value || undefined,
       style: generationStyle.value || undefined,
-      metadata: { story_style: storyStyle.value || undefined, aspect_ratio: projectAspectRatio.value || '16:9' }
+      metadata: {
+        ...projectStylePromptMetadata(),
+        story_style: storyStyle.value || undefined,
+        aspect_ratio: projectAspectRatio.value || '16:9',
+      }
     })
     store.setDrama(drama)
     dramaId = drama.id
@@ -3157,7 +3167,11 @@ async function saveScriptToBackend(content) {
       summary: storyInput.value.trim(),
       genre: storyType.value || undefined,
       style: generationStyle.value || undefined,
-      metadata: { story_style: storyStyle.value || undefined, aspect_ratio: projectAspectRatio.value || '16:9' }
+      metadata: {
+        ...projectStylePromptMetadata(),
+        story_style: storyStyle.value || undefined,
+        aspect_ratio: projectAspectRatio.value || '16:9',
+      }
     }).catch(() => {})
   }
   await loadDrama()
@@ -3170,6 +3184,7 @@ async function saveProjectSettings() {
     genre: storyType.value || undefined,
     style: generationStyle.value || undefined,
     metadata: {
+      ...projectStylePromptMetadata(),
       story_style: storyStyle.value || undefined,
       aspect_ratio: projectAspectRatio.value || '16:9',
       video_clip_duration: videoClipDuration.value || 5,
@@ -3210,7 +3225,11 @@ async function onGenerateStory() {
           description: text,
           genre: storyType.value || undefined,
           style: generationStyle.value || undefined,
-          metadata: { story_style: storyStyle.value || undefined, aspect_ratio: projectAspectRatio.value || '16:9' }
+          metadata: {
+            ...projectStylePromptMetadata(),
+            story_style: storyStyle.value || undefined,
+            aspect_ratio: projectAspectRatio.value || '16:9',
+          }
         })
         store.setDrama(drama)
         dramaId = drama.id
@@ -3233,7 +3252,11 @@ async function onGenerateStory() {
         summary: text,
         genre: storyType.value || undefined,
         style: generationStyle.value || undefined,
-        metadata: { story_style: storyStyle.value || undefined, aspect_ratio: projectAspectRatio.value || '16:9' }
+        metadata: {
+          ...projectStylePromptMetadata(),
+          story_style: storyStyle.value || undefined,
+          aspect_ratio: projectAspectRatio.value || '16:9',
+        }
       }).catch(() => {})
 
       await loadDrama()

@@ -186,8 +186,8 @@ async function buildQuadGridPrompt(db, log, cfg, storyboardId, model) {
   log.info('[四宫格] key2.prompt:\n' + key2.prompt);
   log.info('[四宫格] last.prompt:\n' + last.prompt);
 
-  const style = cfg?.style?.default_style || '';
-  const styleNote = style ? `. Art style: ${style}` : '';
+  const rawStyle = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
+  const styleNote = rawStyle ? `. Art style: ${rawStyle}` : '';
   const quadPrompt = `Create a 2x2 grid storyboard image with EXACTLY 4 equal-sized panels arranged in 2 rows and 2 columns (like a coordinate quadrant layout). Each panel occupies exactly one quadrant of the image. NO borders of any color (black, white, gray), NO dividing lines, NO frames between panels — the 4 panels must be seamlessly adjacent with no gaps or separators${styleNote}.
 
 Each panel uses a DIFFERENT camera angle to show the same scene from varied perspectives — this is intentional and required.
@@ -242,8 +242,8 @@ async function buildNineGridPrompt(db, log, cfg, storyboardId, model) {
   log.info('[九宫格] 9帧提示词生成完成', { storyboard_id: storyboardId });
   frames.forEach((f, i) => log.info(`[九宫格] panel${i}.prompt:\n` + f.prompt));
 
-  const style = cfg?.style?.default_style || '';
-  const styleNote = style ? `. Art style: ${style}` : '';
+  const rawStyle = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
+  const styleNote = rawStyle ? `. Art style: ${rawStyle}` : '';
   const ROWS = [
     [0, 1, 2],
     [3, 4, 5],
@@ -907,7 +907,14 @@ async function processImageGeneration(db, log, imageGenId) {
 
     // ── Step 3: 计算尺寸 ────────────────────────────────────────────
     const loadConfig = require('../config').loadConfig;
-    const cfg = loadConfig();
+    const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
+    let cfg = loadConfig();
+    if (row.drama_id) {
+      try {
+        const dr = db.prepare('SELECT style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(row.drama_id);
+        cfg = mergeCfgStyleWithDrama(cfg, dr || {});
+      } catch (_) {}
+    }
     const filesBaseUrl = (cfg.storage && cfg.storage.base_url) ? String(cfg.storage.base_url).replace(/\/$/, '') : '';
     const storageLocalPath = path.isAbsolute(cfg.storage?.local_path)
       ? cfg.storage.local_path
@@ -953,7 +960,8 @@ async function processImageGeneration(db, log, imageGenId) {
         ).get();
         if (anyTextConfig) {
           log.info('[图生] Step3.5 文本AI优化 prompt 开始', { id: imageGenId, elapsed: elapsed() });
-          const style = cfg?.style?.default_style || '';
+          const rawSt = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
+          const style = rawSt || 'cinematic movie still, anamorphic lens, film grain, dramatic lighting, shallow depth of field, professional cinematography';
           const assetNames = (reference_context_note || '').split('\n')
             .map((l) => l.replace(/^Image \d+: [^"]*"([^"]+)".*/, '$1'))
             .filter(Boolean).join(', ');
@@ -997,7 +1005,7 @@ async function processImageGeneration(db, log, imageGenId) {
             sbDetail?.result     ? `RESULT: ${sbDetail.result}`        : null,
             sbDetail?.atmosphere ? `ATMOSPHERE: ${sbDetail.atmosphere}`: null,
             sbDetail?.shot_type  ? `SHOT_TYPE: ${sbDetail.shot_type}`  : null,
-            `STYLE: ${style || 'cinematic'}`,
+            `STYLE: ${style}`,
             `ASSETS: ${assetNames || 'none'}`,
             prevContinuityState  ? `PREV_CONTINUITY_STATE: ${JSON.stringify(prevContinuityState)}` : null,
             `CONTEXT_PREV: ${prevDesc}`,

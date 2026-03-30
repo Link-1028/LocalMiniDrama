@@ -571,6 +571,7 @@ import { taskAPI } from '@/api/task'
 import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
+import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
@@ -887,7 +888,8 @@ function formatDate(val) {
 async function loadDrama() {
   loading.value = true
   try {
-    const d = await dramaAPI.get(dramaId)
+    let d = await dramaAPI.get(dramaId)
+    d = await backfillDramaStylePromptMetadataIfNeeded(dramaAPI, dramaId, d)
     drama.value = d
     episodes.value = d.episodes || []
     infoForm.title = d.title || ''
@@ -908,7 +910,14 @@ function saveInfo() {
   infoSaveTimer = setTimeout(async () => {
     try {
       await dramaAPI.update(dramaId, { title: infoForm.title, description: infoForm.description })
-      await dramaAPI.saveOutline(dramaId, { genre: infoForm.genre || undefined, style: infoForm.style || undefined, metadata: { aspect_ratio: infoForm.aspect_ratio || '16:9' } })
+      await dramaAPI.saveOutline(dramaId, {
+        genre: infoForm.genre || undefined,
+        style: infoForm.style || undefined,
+        metadata: {
+          ...stylePromptMetadataForSave(infoForm.style),
+          aspect_ratio: infoForm.aspect_ratio || '16:9',
+        },
+      })
     } catch (e) {
       console.error('saveInfo failed', e)
     }

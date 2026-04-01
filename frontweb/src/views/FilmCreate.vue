@@ -155,13 +155,13 @@
           class="story-textarea"
         />
         <div class="row gap" style="margin-top: 10px; flex-wrap: wrap;">
-          <el-select v-model="storyStyle" placeholder="故事风格" clearable style="width: 120px" @change="saveProjectSettings">
+          <el-select v-model="storyStyle" placeholder="故事风格" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
             <el-option label="现代" value="modern" />
             <el-option label="古风" value="ancient" />
             <el-option label="奇幻" value="fantasy" />
             <el-option label="日常" value="daily" />
           </el-select>
-          <el-select v-model="storyType" placeholder="剧本类型" clearable style="width: 120px" @change="saveProjectSettings">
+          <el-select v-model="storyType" placeholder="剧本类型" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
             <el-option label="剧情" value="drama" />
             <el-option label="喜剧" value="comedy" />
             <el-option label="冒险" value="adventure" />
@@ -233,7 +233,7 @@
       <section class="section card pipeline-section">
         <div class="one-click-actions">
           <span class="one-click-label">🚀 一键全流程</span>
-          <el-select v-model="projectAspectRatio" style="width: 130px" @change="saveProjectSettings">
+          <el-select v-model="projectAspectRatio" style="width: 130px" @change="() => saveProjectSettings(false)">
             <el-option label="16:9 横屏" value="16:9" />
             <el-option label="9:16 竖屏" value="9:16" />
             <el-option label="3:4 竖版" value="3:4" />
@@ -241,7 +241,7 @@
             <el-option label="4:3" value="4:3" />
             <el-option label="21:9 宽银幕" value="21:9" />
           </el-select>
-          <el-select v-model="videoClipDuration" style="width: 105px" @change="saveProjectSettings">
+          <el-select v-model="videoClipDuration" style="width: 105px" @change="() => saveProjectSettings(false)">
             <el-option label="4秒/段" :value="4" />
             <el-option label="5秒/段" :value="5" />
             <el-option label="8秒/段" :value="8" />
@@ -256,7 +256,7 @@
           <StylePickerButton
             v-model="generationStyle"
             :options="generationStyleOptions"
-            @change="saveProjectSettings"
+            @change="() => saveProjectSettings(true)"
           />
           <el-button
             type="primary"
@@ -613,7 +613,7 @@
           </label>
         </div>
         <div class="sb-config-row sb-narration-export-row" style="margin-top:10px;flex-wrap:wrap;align-items:center;gap:12px">
-          <el-checkbox v-model="storyboardIncludeNarration" @change="saveProjectSettings">
+          <el-checkbox v-model="storyboardIncludeNarration" @change="() => saveProjectSettings(false)">
             生成分镜时生成解说旁白（narration，与对白分开，便于后期 TTS）
           </el-checkbox>
           <el-button
@@ -3193,19 +3193,29 @@ async function saveScriptToBackend(content) {
   return { created: false }
 }
 
-async function saveProjectSettings() {
+/**
+ * @param {boolean} includeGenerationStyle - 仅在选择「画面风格」为 true：写入 dramas.style 与 style_prompt_*。
+ * 其它项目设置改为 false，避免界面未刷新时仍用旧的 generationStyle 覆盖外部已更新的画风（如直接调 API PUT outline）。
+ */
+async function saveProjectSettings(includeGenerationStyle = false) {
   if (!store.dramaId) return
-  dramaAPI.saveOutline(store.dramaId, {
+  const metadata = {
+    story_style: storyStyle.value || undefined,
+    aspect_ratio: projectAspectRatio.value || '16:9',
+    video_clip_duration: videoClipDuration.value || 5,
+    storyboard_include_narration: !!storyboardIncludeNarration.value,
+  }
+  if (includeGenerationStyle) {
+    Object.assign(metadata, projectStylePromptMetadata())
+  }
+  const payload = {
     genre: storyType.value || undefined,
-    style: generationStyle.value || undefined,
-    metadata: {
-      ...projectStylePromptMetadata(),
-      story_style: storyStyle.value || undefined,
-      aspect_ratio: projectAspectRatio.value || '16:9',
-      video_clip_duration: videoClipDuration.value || 5,
-      storyboard_include_narration: !!storyboardIncludeNarration.value,
-    }
-  }).catch(e => console.error('Settings auto-save failed', e))
+    metadata,
+  }
+  if (includeGenerationStyle) {
+    payload.style = generationStyle.value || undefined
+  }
+  dramaAPI.saveOutline(store.dramaId, payload).catch(e => console.error('Settings auto-save failed', e))
 }
 
 async function onGenerateStory() {

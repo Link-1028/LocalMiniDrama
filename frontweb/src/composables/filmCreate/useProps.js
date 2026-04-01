@@ -144,6 +144,7 @@ export function useProps(deps) {
       if (res?.prompt) {
         form.prompt = res.prompt
         ElMessage.success('提示词已生成')
+        await loadDrama()
       }
     } catch (e) {
       ElMessage.error(e.message || '生成提示词失败')

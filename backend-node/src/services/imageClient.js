@@ -7,6 +7,10 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const taskService = require('./taskService');
 const { loadConfig } = require('../config');
+const { postJSONWithTimeout } = require('./aiClient');
+
+/** 图生 POST 使用 Node http(s)，默认 10 分钟，避免 undici fetch 大包体/慢链路下模糊失败 */
+const IMAGE_HTTP_TIMEOUT_MS = 600000;
 
 // 多参考图时注入到所有支持 negative_prompt 的模型，防止生成分割/拼贴布局；同时加入安全词以减少敏感拦截
 const ANTI_SPLIT_NEGATIVE_PROMPT = 'nsfw, nudity, naked, violence, blood, gore, sensitive content, split panels, side-by-side layout, collage, diptych, triptych, grid layout, multiple panels, comparison view, composite image, two images in one frame';
@@ -321,11 +325,19 @@ async function callKlingImageApi(config, log, opts) {
     body_preview: JSON.stringify(bodyForLog).slice(0, 300),
   });
 
-  const submitRes = await fetch(submitUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-  const submitRaw = await submitRes.text();
+  let submitRaw;
+  let submitStatus;
+  try {
+    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    submitStatus = out.statusCode;
+    submitRaw = out.raw;
+  } catch (e) {
+    log.error('[Kling图生] 网络错误', { image_gen_id, error: e.message });
+    return { error: 'Kling 图片生成网络请求失败: ' + e.message };
+  }
 
-  if (!submitRes.ok) {
-    let errMsg = 'Kling 图片生成请求失败: ' + submitRes.status;
+  if (submitStatus < 200 || submitStatus >= 300) {
+    let errMsg = 'Kling 图片生成请求失败: ' + submitStatus;
     try {
       const errJson = JSON.parse(submitRaw);
       const msg = errJson.message || errJson.msg || (errJson.error && (errJson.error.message || errJson.error));
@@ -333,7 +345,7 @@ async function callKlingImageApi(config, log, opts) {
     } catch (_) {
       if (submitRaw) errMsg += ' - ' + submitRaw.slice(0, 200);
     }
-    log.error('[Kling图生] 请求失败', { status: submitRes.status, body: submitRaw.slice(0, 500), image_gen_id });
+    log.error('[Kling图生] 请求失败', { status: submitStatus, body: submitRaw.slice(0, 500), image_gen_id });
     return { error: errMsg };
   }
 
@@ -498,14 +510,18 @@ async function callNanoBananaImageApi(config, log, opts) {
     body_keys: Object.keys(body),
     body_preview: JSON.stringify(bodyForLog).slice(0, 300),
   });
-  const submitRes = await fetch(submitUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  const submitRaw = await submitRes.text();
-  if (!submitRes.ok) {
-    let errMsg = 'NanoBanana 图片生成请求失败: ' + submitRes.status;
+  let submitRaw;
+  let submitStatus;
+  try {
+    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    submitStatus = out.statusCode;
+    submitRaw = out.raw;
+  } catch (e) {
+    log.error('NanoBanana submit network error', { image_gen_id, error: e.message });
+    return { error: 'NanoBanana 图片生成网络请求失败: ' + e.message };
+  }
+  if (submitStatus < 200 || submitStatus >= 300) {
+    let errMsg = 'NanoBanana 图片生成请求失败: ' + submitStatus;
     try {
       const errJson = JSON.parse(submitRaw);
       const msg = errJson.msg || errJson.message || (errJson.error && (errJson.error.message || errJson.error));
@@ -514,7 +530,7 @@ async function callNanoBananaImageApi(config, log, opts) {
       if (submitRaw) errMsg += ' - ' + submitRaw.slice(0, 200);
     }
     log.error('NanoBanana submit failed', {
-      status: submitRes.status,
+      status: submitStatus,
       body: submitRaw.slice(0, 500),
       image_gen_id,
       submit_url: submitUrl,
@@ -747,17 +763,22 @@ async function callDashScopeImageApi(config, log, opts) {
       body.parameters.negative_prompt = String(negative_prompt).trim().slice(0, 500);
     }
     log.info('Image API request (Qwen-Image sync)', { url: url.slice(0, 70), model: body.model, image_gen_id });
-    const createRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + (config.api_key || ''),
-      },
-      body: JSON.stringify(body),
-    });
-    const raw = await createRes.text();
-    if (!createRes.ok) {
-      let errMsg = '图片生成请求失败: ' + createRes.status;
+    const qwenHeaders = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + (config.api_key || ''),
+    };
+    let raw;
+    let httpStatus;
+    try {
+      const out = await postJSONWithTimeout(url, qwenHeaders, body, IMAGE_HTTP_TIMEOUT_MS);
+      httpStatus = out.statusCode;
+      raw = out.raw;
+    } catch (e) {
+      log.error('Qwen-Image network error', { image_gen_id, error: e.message });
+      return { error: '图片生成网络请求失败: ' + e.message };
+    }
+    if (httpStatus < 200 || httpStatus >= 300) {
+      let errMsg = '图片生成请求失败: ' + httpStatus;
       try {
         const errJson = JSON.parse(raw);
         if (errJson.message) errMsg += ' - ' + errJson.message;
@@ -765,7 +786,7 @@ async function callDashScopeImageApi(config, log, opts) {
       } catch (_) {
         if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
       }
-      log.error('Qwen-Image create failed', { status: createRes.status, body: raw.slice(0, 300), image_gen_id });
+      log.error('Qwen-Image create failed', { status: httpStatus, body: raw.slice(0, 300), image_gen_id });
       return { error: errMsg };
     }
     try {
@@ -835,14 +856,18 @@ async function callDashScopeImageApi(config, log, opts) {
     Authorization: 'Bearer ' + (config.api_key || ''),
   };
   if (stream) headers['X-DashScope-Sse'] = 'enable';
-  const createRes = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  const raw = await createRes.text();
-  if (!createRes.ok) {
-    let errMsg = '图片生成请求失败: ' + createRes.status;
+  let raw;
+  let httpStatus;
+  try {
+    const out = await postJSONWithTimeout(url, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    httpStatus = out.statusCode;
+    raw = out.raw;
+  } catch (e) {
+    log.error('DashScope network error', { image_gen_id, error: e.message });
+    return { error: '图片生成网络请求失败: ' + e.message };
+  }
+  if (httpStatus < 200 || httpStatus >= 300) {
+    let errMsg = '图片生成请求失败: ' + httpStatus;
     try {
       const errJson = JSON.parse(raw);
       if (errJson.message) errMsg += ' - ' + errJson.message;
@@ -850,7 +875,7 @@ async function callDashScopeImageApi(config, log, opts) {
     } catch (_) {
       if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
     }
-    log.error('DashScope create failed', { status: createRes.status, body: raw.slice(0, 300), image_gen_id });
+    log.error('DashScope create failed', { status: httpStatus, body: raw.slice(0, 300), image_gen_id });
     return { error: errMsg };
   }
 
@@ -1153,16 +1178,25 @@ async function callGeminiImageApi(db, config, log, opts) {
   log.info('[Gemini图生] → 发送请求', { image_gen_id, model: modelName, url: url.replace(/key=[^&]+/, 'key=***').slice(0, 120), elapsed: elapsed() });
 
   const tReq = Date.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  log.info('[Gemini图生] ← 收到响应', { image_gen_id, status: res.status, req_ms: Date.now() - tReq, elapsed: elapsed() });
+  let geminiStatus;
+  let raw;
+  try {
+    const out = await postJSONWithTimeout(
+      url,
+      { 'Content-Type': 'application/json' },
+      body,
+      IMAGE_HTTP_TIMEOUT_MS,
+    );
+    geminiStatus = out.statusCode;
+    raw = out.raw;
+  } catch (e) {
+    log.error('[Gemini图生] ✗ 网络错误', { image_gen_id, error: e.message, total_elapsed: elapsed() });
+    return { error: 'Gemini 图片生成网络请求失败: ' + e.message };
+  }
+  log.info('[Gemini图生] ← 收到响应', { image_gen_id, status: geminiStatus, req_ms: Date.now() - tReq, elapsed: elapsed() });
 
-  const raw = await res.text();
-  if (!res.ok) {
-    let errMsg = 'Gemini 图片生成请求失败: ' + res.status;
+  if (geminiStatus < 200 || geminiStatus >= 300) {
+    let errMsg = 'Gemini 图片生成请求失败: ' + geminiStatus;
     try {
       const errJson = JSON.parse(raw);
       const msg = errJson.error?.message || errJson.message;
@@ -1170,7 +1204,7 @@ async function callGeminiImageApi(db, config, log, opts) {
     } catch (_) {
       if (raw) errMsg += ' - ' + raw.slice(0, 200);
     }
-    log.error('[Gemini图生] ✗ API错误', { image_gen_id, status: res.status, body: raw.slice(0, 400), total_elapsed: elapsed() });
+    log.error('[Gemini图生] ✗ API错误', { image_gen_id, status: geminiStatus, body: raw.slice(0, 400), total_elapsed: elapsed() });
     return { error: errMsg };
   }
 
@@ -1343,18 +1377,25 @@ async function callImageApi(db, log, opts) {
     ...(resolvedRefs.length > 0 ? { image: resolvedRefs } : {}),
   };
   log.info('Image API request', { url: url.slice(0, 60), model, image_gen_id, has_ref_images: resolvedRefs.length > 0, size: effectiveSize, original_size: size !== effectiveSize ? size : undefined });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + (config.api_key || ''),
-    },
-    body: JSON.stringify(body),
-  });
-  const raw = await res.text();
-  if (!res.ok) {
-    log.error('Image API failed', { status: res.status, body: raw.slice(0, 300) });
-    let errMsg = '图片生成请求失败: ' + res.status;
+  const openaiCompatHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + (config.api_key || ''),
+  };
+  let raw;
+  let httpStatus;
+  try {
+    const out = await postJSONWithTimeout(url, openaiCompatHeaders, body, IMAGE_HTTP_TIMEOUT_MS);
+    httpStatus = out.statusCode;
+    raw = out.raw;
+  } catch (e) {
+    log.error('Image API network error', { image_gen_id, error: e.message, url: url.slice(0, 80) });
+    return { error: e.message && e.message.includes('timeout')
+      ? e.message
+      : ('图片生成网络请求失败: ' + e.message) };
+  }
+  if (httpStatus < 200 || httpStatus >= 300) {
+    log.error('Image API failed', { status: httpStatus, body: raw.slice(0, 300) });
+    let errMsg = '图片生成请求失败: ' + httpStatus;
     try {
       const errJson = JSON.parse(raw);
       const msg = errJson.error?.message || errJson.message || errJson.error;

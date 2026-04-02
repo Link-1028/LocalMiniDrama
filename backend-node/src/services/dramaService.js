@@ -1,6 +1,7 @@
 // 对应 Go application/services/drama_service.go
 
 const storageLayout = require('./storageLayout');
+const { resolveStylePreset } = require('../constants/generationStylePresets');
 
 /**
  * 清理 image_url：如果数据库中存储的是 base64 data URL，则返回 null。
@@ -447,6 +448,25 @@ function saveOutline(db, log, dramaId, req) {
     }
   }
   const mergedMetadata = { ...existingMetadata, ...newMetadata };
+
+  // 与 mergeCfgStyleWithDrama 一致：提示词优先读 metadata.style_prompt_*。仅改 dramas.style 而不带画风长文案时，
+  // 若仍保留旧的 metadata 画风，会出现「列表/首页 badge 已是新 style，角色提示词却仍用旧画风」。
+  if (req.style !== undefined) {
+    const styleVal = String(req.style || '').trim();
+    const hasExplicitStylePrompt =
+      req.metadata &&
+      typeof req.metadata === 'object' &&
+      !Array.isArray(req.metadata) &&
+      ('style_prompt_zh' in req.metadata || 'style_prompt_en' in req.metadata);
+    if (!hasExplicitStylePrompt && styleVal) {
+      const preset = resolveStylePreset(styleVal);
+      if (preset) {
+        mergedMetadata.style_prompt_zh = preset.zh;
+        mergedMetadata.style_prompt_en = preset.en;
+      }
+    }
+  }
+
   const metadataStr = JSON.stringify(mergedMetadata);
   
   db.prepare(
@@ -602,8 +622,8 @@ function saveEpisodes(db, log, dramaId, req) {
 function saveProgress(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return false;
-  let meta = {};
-  if (drama.metadata) try { meta = JSON.parse(drama.metadata); } catch (_) {}
+  // getDramaById 已通过 rowToDrama 把 metadata 解析为对象，不能对 object 再 JSON.parse，否则进 catch 得到 {} 会整表覆盖掉画风等字段
+  const meta = storageLayout.parseMetadata(drama.metadata);
   meta.current_step = req.current_step;
   if (req.step_data) meta.step_data = req.step_data;
   const now = new Date().toISOString();

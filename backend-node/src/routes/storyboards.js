@@ -156,19 +156,29 @@ function routes(db, log) {
           dramaId = ep?.drama_id ?? null;
         } catch (_) {}
 
-        // 画风：优先剧集 metadata（前端写入的 prompt），否则全局配置
-        let style = '';
+        // 画风：mergeCfgStyleWithDrama 会把 dramas.style 的 value（如 cartoon）展开为完整提示词，与图生一致
+        let styleZh = '';
+        let styleEn = '';
         try {
           const loadConfig = require('../config').loadConfig;
-          const cfg = loadConfig();
-          const { styleFieldsFromDramaRow } = require('../utils/dramaStyleMerge');
-          if (dramaId) {
-            const dr = db.prepare('SELECT style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
-            const f = styleFieldsFromDramaRow(dr);
-            style = f.en || f.zh || f.legacy || '';
-          }
-          if (!style) style = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').trim();
+          const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
+          let cfg = loadConfig();
+          const dr = dramaId
+            ? db.prepare('SELECT style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId)
+            : null;
+          cfg = mergeCfgStyleWithDrama(cfg, dr || {});
+          styleEn = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').trim();
+          styleZh = (cfg?.style?.default_style_zh || '').trim();
         } catch (_) {}
+        const styleForTokens =
+          styleEn ||
+          styleZh ||
+          'cinematic movie still, anamorphic lens, film grain, dramatic lighting, shallow depth of field, professional cinematography';
+        const styleBlockLines = [];
+        if (styleZh) styleBlockLines.push(`【画风·最高优先级】${styleZh}`);
+        if (styleEn && styleEn !== styleZh) styleBlockLines.push(`MANDATORY ART STYLE: ${styleEn}.`);
+        else if (styleEn && !styleZh) styleBlockLines.push(`MANDATORY ART STYLE: ${styleEn}.`);
+        else if (!styleZh && !styleEn) styleBlockLines.push(`MANDATORY ART STYLE: ${styleForTokens}.`);
 
         // 获取前后镜头上下文（含上一镜头连戏状态快照）
         let prevDesc = '(first shot)';
@@ -216,13 +226,14 @@ function routes(db, log) {
         } catch (_) {}
 
         const userPromptLines = [
+          ...styleBlockLines,
           sb.image_prompt  ? `PROMPT: ${sb.image_prompt}`    : null,
           sb.action        ? `ACTION: ${sb.action}`          : null,
           sb.dialogue      ? `DIALOGUE: ${sb.dialogue}`      : null,
           sb.result        ? `RESULT: ${sb.result}`          : null,
           sb.atmosphere    ? `ATMOSPHERE: ${sb.atmosphere}`  : null,
           sb.shot_type     ? `SHOT_TYPE: ${sb.shot_type}`    : null,
-          `STYLE: ${style || 'cinematic'}`,
+          `STYLE_TOKENS (repeat in output): ${styleForTokens}`,
           `ASSETS: ${assetNames || 'none'}`,
           prevContinuityState ? `PREV_CONTINUITY_STATE: ${JSON.stringify(prevContinuityState)}` : null,
           `CONTEXT_PREV: ${prevDesc}`,

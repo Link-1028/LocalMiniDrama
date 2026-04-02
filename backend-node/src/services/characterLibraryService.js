@@ -368,19 +368,35 @@ function detectGenderFromDescription(text) {
   return null;
 }
 
-function buildFourViewImagePrompt(fourViewDescription, styleText) {
+/**
+ * @param {string} fourViewDescription 文本AI润色后的角色四格描述
+ * @param {string} [styleEn] default_style_en 或 fallback default_style
+ * @param {string} [styleZh] default_style_zh（可与 en 相同；相同时不重复输出英文行）
+ */
+function buildFourViewImagePrompt(fourViewDescription, styleEn, styleZh) {
   const imageLayoutInstruction = promptI18n.getRoleGenerateImagePrompt();
-  const styleAppend = styleText ? ` Art style: ${styleText}.` : '';
+  const zh = (styleZh || '').trim();
+  const en = (styleEn || '').trim();
 
-  // 从描述中检测性别，在 CRITICAL 约束里用英文强调，防止图片 AI 生成错误性别
+  const styleLines = [];
+  if (zh) styleLines.push(`【画风·最高优先级】四格统一：${zh}`);
+  if (en && en !== zh) styleLines.push(`MANDATORY ART STYLE (all 4 panels): ${en}.`);
+  else if (en && !zh) styleLines.push(`MANDATORY ART STYLE (all 4 panels): ${en}.`);
+  const styleHeader = styleLines.length ? `${styleLines.join('\n')}\n\n` : '';
+
   const gender = detectGenderFromDescription(fourViewDescription);
   const genderEnforcement = gender === 'MALE'
-    ? ' GENDER CRITICAL: The character is MALE. Masculine body structure, male facial features. Do NOT generate a female character under any circumstances.'
+    ? 'GENDER: male only — masculine build and facial features; do not feminize.'
     : gender === 'FEMALE'
-      ? ' GENDER CRITICAL: The character is FEMALE. Feminine body structure, female facial features. Do NOT generate a male character under any circumstances.'
+      ? 'GENDER: female only — feminine build and facial features; do not masculinize.'
       : '';
 
-  return `${imageLayoutInstruction}\n\n---\n\n${fourViewDescription}\n\n---\n\nCRITICAL OUTPUT REQUIREMENT: Generate ONE single image containing a 2×2 grid (4 panels): top-left=head close-up, top-right=front full body, bottom-left=left side full body, bottom-right=back full body. Pure white background. No text labels. No props in hands. Neutral expression. Arms at sides.${genderEnforcement}${styleAppend}`;
+  const tailParts = [];
+  if (genderEnforcement) tailParts.push(genderEnforcement);
+  if (zh || en) tailParts.push(`Reiterate: same art style as above (${en || zh}).`);
+  const tail = tailParts.length ? `\n\n---\n\n${tailParts.join(' ')}` : '';
+
+  return `${styleHeader}${imageLayoutInstruction}\n\n---\n\n${fourViewDescription}${tail}`;
 }
 
 /**
@@ -424,7 +440,8 @@ async function generateCharacterPromptOnly(db, log, cfg, characterId, modelName,
   }
 
   const styleEn = (mergedCfg.style.default_style_en || mergedCfg.style.default_style || '').trim();
-  const polishedPrompt = buildFourViewImagePrompt(fourViewDescription, styleEn);
+  const styleZh = (mergedCfg.style.default_style_zh || '').trim();
+  const polishedPrompt = buildFourViewImagePrompt(fourViewDescription, styleEn, styleZh);
 
   // 保存到 characters.polished_prompt
   db.prepare('UPDATE characters SET polished_prompt = ?, updated_at = ? WHERE id = ?').run(
@@ -479,7 +496,8 @@ async function generateCharacterFourViewImage(db, log, cfg, characterId, modelNa
     }
 
     const styleEn = (mergedCfg.style.default_style_en || mergedCfg.style.default_style || '').trim();
-    imagePrompt = buildFourViewImagePrompt(fourViewDescription, styleEn);
+    const styleZh = (mergedCfg.style.default_style_zh || '').trim();
+    imagePrompt = buildFourViewImagePrompt(fourViewDescription, styleEn, styleZh);
 
     // 顺带保存，供下次复用
     try {

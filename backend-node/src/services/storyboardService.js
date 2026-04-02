@@ -1,4 +1,39 @@
 // 分镜：create, update, delete；帧提示词 get/save
+
+/**
+ * 将分镜勾选的角色（dramas.characters 表 id）同步到 storyboard_characters（角色库 id），
+ * 便于帧提示词与图生参考图与 UI 一致；按角色名匹配本剧或全局角色库。
+ */
+function syncStoryboardCharacterLinks(db, storyboardId, dramaCharacterIds) {
+  const sid = Number(storyboardId);
+  db.prepare('DELETE FROM storyboard_characters WHERE storyboard_id = ?').run(sid);
+  const ids = Array.isArray(dramaCharacterIds) ? dramaCharacterIds.map((n) => Number(n)).filter((n) => Number.isFinite(n)) : [];
+  if (ids.length === 0) return;
+  const sb = db.prepare(
+    `SELECT e.drama_id FROM storyboards s JOIN episodes e ON e.id = s.episode_id WHERE s.id = ? AND s.deleted_at IS NULL`
+  ).get(sid);
+  const dramaId = sb?.drama_id != null ? Number(sb.drama_id) : null;
+  const now = new Date().toISOString();
+  const ins = db.prepare('INSERT OR IGNORE INTO storyboard_characters (storyboard_id, character_id, created_at) VALUES (?, ?, ?)');
+  for (const cid of ids.slice(0, 20)) {
+    const crow = db.prepare('SELECT name FROM characters WHERE id = ? AND deleted_at IS NULL').get(cid);
+    const name = (crow?.name || '').trim();
+    if (!name) continue;
+    let lib = null;
+    if (dramaId) {
+      lib = db.prepare(
+        'SELECT id FROM character_libraries WHERE deleted_at IS NULL AND drama_id = ? AND TRIM(name) = ? LIMIT 1'
+      ).get(dramaId, name);
+    }
+    if (!lib) {
+      lib = db.prepare(
+        'SELECT id FROM character_libraries WHERE deleted_at IS NULL AND drama_id IS NULL AND TRIM(name) = ? LIMIT 1'
+      ).get(name);
+    }
+    if (lib) ins.run(sid, lib.id, now);
+  }
+}
+
 function createStoryboard(db, log, req) {
   const now = new Date().toISOString();
   const episodeId = Number(req.episode_id);
@@ -36,9 +71,23 @@ function updateStoryboard(db, log, id, req) {
   const params = [];
   // 前端可能传 character_ids，与 characters 统一：存为 JSON 字符串
   const charactersValue = req.character_ids !== undefined ? req.character_ids : req.characters;
+  let parsedDramaCharIdsForSync = null;
   if (charactersValue !== undefined) {
     updates.push('characters = ?');
-    params.push(Array.isArray(charactersValue) ? JSON.stringify(charactersValue) : (typeof charactersValue === 'string' ? charactersValue : '[]'));
+    const jsonStr = Array.isArray(charactersValue) ? JSON.stringify(charactersValue) : (typeof charactersValue === 'string' ? charactersValue : '[]');
+    params.push(jsonStr);
+    if (Array.isArray(charactersValue)) {
+      parsedDramaCharIdsForSync = charactersValue.map((x) => Number(typeof x === 'object' && x != null ? x.id : x)).filter((n) => Number.isFinite(n));
+    } else if (typeof charactersValue === 'string') {
+      try {
+        const arr = JSON.parse(charactersValue);
+        if (Array.isArray(arr)) {
+          parsedDramaCharIdsForSync = arr.map((x) => Number(typeof x === 'object' && x != null ? x.id : x)).filter((n) => Number.isFinite(n));
+        }
+      } catch (_) {
+        parsedDramaCharIdsForSync = [];
+      }
+    }
   }
   for (const key of allowed) {
     if (key === 'characters') continue;
@@ -52,6 +101,13 @@ function updateStoryboard(db, log, id, req) {
   if (updates.length > 0) {
     params.push(new Date().toISOString(), id);
     db.prepare('UPDATE storyboards SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
+  }
+  if (parsedDramaCharIdsForSync !== null) {
+    try {
+      syncStoryboardCharacterLinks(db, id, parsedDramaCharIdsForSync);
+    } catch (e) {
+      log.warn('syncStoryboardCharacterLinks failed', { id, message: e.message });
+    }
   }
   // 道具关联：写入 storyboard_props 表
   if (req.prop_ids !== undefined) {

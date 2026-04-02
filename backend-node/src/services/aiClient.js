@@ -56,6 +56,56 @@ function postJSONNonStream(url, headers, body, timeoutMs = 120000) {
 }
 
 /**
+ * 图生等长耗时 JSON POST：使用 Node http(s) + 可配置超时（默认 10 分钟），
+ * 避免 undici fetch 在慢链路或大包体（多参考图 base64）下长时间挂起后以模糊的 fetch failed 结束。
+ * @returns {Promise<{ statusCode: number, raw: string }>}
+ */
+function postJSONWithTimeout(url, headers, body, timeoutMs = 600000) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const mod = parsed.protocol === 'https:' ? https : http;
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const reqHeaders = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(bodyStr),
+      ...headers,
+    };
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: reqHeaders,
+    };
+
+    const req = mod.request(options, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        clearTimeout(timer);
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        resolve({ statusCode: res.statusCode || 0, raw });
+      });
+      res.on('error', (e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
+
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new Error(`Image generation HTTP timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+    req.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+/**
  * 用 SSE 流式输出（stream: true）请求 OpenAI 兼容接口。
  * 流式模式下 socket 每收到一个 token 就重置静默计时器，只要模型在生成就不会超时，
  * 彻底解决分镜等长耗时任务的 "fetch failed / timeout" 问题。
@@ -547,4 +597,5 @@ module.exports = {
   extractDescriptionFromImage,
   EXTRACT_PROMPTS,
   isRefusalResponse,
+  postJSONWithTimeout,
 };

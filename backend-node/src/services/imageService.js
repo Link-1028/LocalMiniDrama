@@ -187,8 +187,13 @@ async function buildQuadGridPrompt(db, log, cfg, storyboardId, model) {
   log.info('[四宫格] last.prompt:\n' + last.prompt);
 
   const rawStyle = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
-  const styleNote = rawStyle ? `. Art style: ${rawStyle}` : '';
-  const quadPrompt = `Create a 2x2 grid storyboard image with EXACTLY 4 equal-sized panels arranged in 2 rows and 2 columns (like a coordinate quadrant layout). Each panel occupies exactly one quadrant of the image. NO borders of any color (black, white, gray), NO dividing lines, NO frames between panels — the 4 panels must be seamlessly adjacent with no gaps or separators${styleNote}.
+  const styleZhGrid = (cfg?.style?.default_style_zh || '').toString().trim();
+  const styleHeadGrid = [
+    styleZhGrid ? `【画风·最高优先级】${styleZhGrid}` : '',
+    rawStyle && rawStyle !== styleZhGrid ? `MANDATORY ART STYLE: ${rawStyle}.` : rawStyle ? `MANDATORY ART STYLE: ${rawStyle}.` : '',
+  ].filter(Boolean).join('\n');
+  const styleNote = !styleHeadGrid && rawStyle ? `. Art style: ${rawStyle}` : '';
+  const quadCore = `Create a 2x2 grid storyboard image with EXACTLY 4 equal-sized panels arranged in 2 rows and 2 columns (like a coordinate quadrant layout). Each panel occupies exactly one quadrant of the image. NO borders of any color (black, white, gray), NO dividing lines, NO frames between panels — the 4 panels must be seamlessly adjacent with no gaps or separators${styleNote}.
 
 Each panel uses a DIFFERENT camera angle to show the same scene from varied perspectives — this is intentional and required.
 
@@ -201,6 +206,7 @@ BOTTOM ROW (left to right):
 [Panel 4 - bottom-right quadrant, ${QUAD_PANEL_ANGLE_LABELS_EN[3]}, final state]: ${last.prompt}
 
 CRITICAL LAYOUT RULES: The image MUST be divided into 4 equal quadrants in a 2x2 grid. Do NOT arrange panels in a single strip. Do NOT add any black or dark borders/frames around the panels. Each panel is self-contained with consistent character appearance and art style. The camera angle MUST visually differ between panels as specified above.`;
+  const quadPrompt = (styleHeadGrid ? `${styleHeadGrid}\n\n` : '') + quadCore;
   log.info('[四宫格] FINAL IMAGE PROMPT (发送给图片AI):\n' + quadPrompt);
   return quadPrompt;
 }
@@ -243,7 +249,12 @@ async function buildNineGridPrompt(db, log, cfg, storyboardId, model) {
   frames.forEach((f, i) => log.info(`[九宫格] panel${i}.prompt:\n` + f.prompt));
 
   const rawStyle = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
-  const styleNote = rawStyle ? `. Art style: ${rawStyle}` : '';
+  const styleZhGrid = (cfg?.style?.default_style_zh || '').toString().trim();
+  const styleHeadGrid = [
+    styleZhGrid ? `【画风·最高优先级】${styleZhGrid}` : '',
+    rawStyle && rawStyle !== styleZhGrid ? `MANDATORY ART STYLE: ${rawStyle}.` : rawStyle ? `MANDATORY ART STYLE: ${rawStyle}.` : '',
+  ].filter(Boolean).join('\n');
+  const styleNote = !styleHeadGrid && rawStyle ? `. Art style: ${rawStyle}` : '';
   const ROWS = [
     [0, 1, 2],
     [3, 4, 5],
@@ -257,13 +268,14 @@ async function buildNineGridPrompt(db, log, cfg, storyboardId, model) {
     `${rowNames[r]} (left to right):\n` + cols.map((c) => panelDescs[c]).join('\n')
   ).join('\n\n');
 
-  const ninePrompt = `Create a 3x3 grid storyboard image with EXACTLY 9 equal-sized panels arranged in 3 rows and 3 columns. Each panel occupies exactly one cell of the 3×3 grid. NO borders of any color (black, white, gray), NO dividing lines, NO frames between panels — all 9 panels must be seamlessly adjacent with no gaps or separators${styleNote}.
+  const nineCore = `Create a 3x3 grid storyboard image with EXACTLY 9 equal-sized panels arranged in 3 rows and 3 columns. Each panel occupies exactly one cell of the 3×3 grid. NO borders of any color (black, white, gray), NO dividing lines, NO frames between panels — all 9 panels must be seamlessly adjacent with no gaps or separators${styleNote}.
 
 Each panel uses a DIFFERENT camera angle to show the same scene from varied cinematic perspectives — this is intentional and required.
 
 ${rowBlocks}
 
 CRITICAL LAYOUT RULES: The image MUST be divided into 9 equal cells in a 3×3 grid. Do NOT arrange panels in a single strip. Do NOT add any borders or frames. Each panel is self-contained with consistent character appearance and art style. The camera angle MUST visually differ between panels as specified above.`;
+  const ninePrompt = (styleHeadGrid ? `${styleHeadGrid}\n\n` : '') + nineCore;
   log.info('[九宫格] FINAL IMAGE PROMPT (发送给图片AI):\n' + ninePrompt);
   return ninePrompt;
 }
@@ -636,6 +648,8 @@ async function processImageGeneration(db, log, imageGenId) {
     let reference_source = null;
     // 参考图映射说明：告诉图片AI每张参考图对应哪个角色/场景，防止模型模仿宫格布局
     let reference_context_note = null;
+    /** 分镜 characters 列已显式配置时，不再用 Step2.3「台词是否出现人名」过滤参考图（以勾选为准） */
+    let skipStep23PromptCharFilter = false;
     if (row.reference_images) {
       try {
         const parsed = JSON.parse(row.reference_images);
@@ -669,30 +683,41 @@ async function processImageGeneration(db, log, imageGenId) {
             }
           }
         }
-        if (sb.characters) {
+        /** 分镜 characters 列：null=未配置走兼容逻辑；数组=显式勾选（含空数组=不要任何角色参考） */
+        let explicitDramaCharIds = null;
+        let charListParsed = null;
+        if (sb.characters != null && String(sb.characters).trim() !== '') {
           try {
-            const charList = JSON.parse(sb.characters);
-            if (Array.isArray(charList)) {
-              for (const item of charList.slice(0, 3)) {
-                const cid = typeof item === 'object' && item != null ? item.id : item;
-                const c = db.prepare('SELECT image_url, local_path, name FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(cid));
-                if (!c) continue;
-                // 优先使用拆分后的正面全身图（quad_panel_1=右上=正面全身），比四视图合图更准确
-                const charPanel = db.prepare(
-                  `SELECT local_path, image_url FROM image_generations
-                   WHERE character_id = ? AND frame_type = 'quad_panel_1' AND status = 'completed'
-                   ORDER BY id DESC LIMIT 1`
-                ).get(Number(cid));
-                const charRef = (charPanel && (charPanel.local_path || charPanel.image_url))
-                  || c.local_path || c.image_url;
-                if (charRef) {
-                  refs.push(charRef);
-                  const isPanel = !!(charPanel && (charPanel.local_path || charPanel.image_url));
-                  refLabels.push(`Image ${refs.length}: character appearance reference for "${c.name || 'character'}"${isPanel ? ' (front full-body view)' : ' (four-view reference sheet)'}`);
-                }
-              }
+            const parsed = JSON.parse(sb.characters);
+            if (Array.isArray(parsed)) {
+              charListParsed = parsed;
+              explicitDramaCharIds = parsed
+                .map((item) => Number(typeof item === 'object' && item != null ? item.id : item))
+                .filter((n) => Number.isFinite(n));
             }
-          } catch (_) {}
+          } catch (_) {
+            explicitDramaCharIds = null;
+            charListParsed = null;
+          }
+        }
+        if (charListParsed && charListParsed.length) {
+          for (const item of charListParsed.slice(0, 3)) {
+            const cid = typeof item === 'object' && item != null ? item.id : item;
+            const c = db.prepare('SELECT image_url, local_path, name FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(cid));
+            if (!c) continue;
+            const charPanel = db.prepare(
+              `SELECT local_path, image_url FROM image_generations
+               WHERE character_id = ? AND frame_type = 'quad_panel_1' AND status = 'completed'
+               ORDER BY id DESC LIMIT 1`
+            ).get(Number(cid));
+            const charRef = (charPanel && (charPanel.local_path || charPanel.image_url))
+              || c.local_path || c.image_url;
+            if (charRef) {
+              refs.push(charRef);
+              const isPanel = !!(charPanel && (charPanel.local_path || charPanel.image_url));
+              refLabels.push(`Image ${refs.length}: character appearance reference for "${c.name || 'character'}"${isPanel ? ' (front full-body view)' : ' (four-view reference sheet)'}`);
+            }
+          }
         }
         // ── 分镜关联道具（storyboard_props）→ 参考图（前端「物品」与 DB 一致，此前未参与 Step2）──
         try {
@@ -718,7 +743,15 @@ async function processImageGeneration(db, log, imageGenId) {
           }
         } catch (_) {}
         // ── 补充：从 storyboard_characters 关联表查 character_libraries 的四视图 URL ──
-        // 角色库中生成了四视图（four_view_image_url）的角色优先作为参考图
+        // 若分镜已显式配置 characters JSON，则只保留「当前勾选角色同名」的库条目，避免 UI 已去掉的人仍被当作参考图
+        const allowedLibNamesLower = new Set();
+        if (explicitDramaCharIds !== null && explicitDramaCharIds.length > 0) {
+          for (const cid of explicitDramaCharIds) {
+            const nm = db.prepare('SELECT name FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(cid));
+            if (nm?.name) allowedLibNamesLower.add(String(nm.name).trim().toLowerCase());
+          }
+        }
+        const restrictLibToExplicitSelection = explicitDramaCharIds !== null;
         try {
           const libLinks = db.prepare('SELECT character_id FROM storyboard_characters WHERE storyboard_id = ?').all(row.storyboard_id);
           const coveredNames = new Set();
@@ -727,6 +760,10 @@ async function processImageGeneration(db, log, imageGenId) {
               'SELECT id, name, four_view_image_url, image_url, local_path FROM character_libraries WHERE id = ? AND deleted_at IS NULL'
             ).get(link.character_id);
             if (!lib) continue;
+            if (restrictLibToExplicitSelection) {
+              const ln = String(lib.name || '').trim().toLowerCase();
+              if (!ln || !allowedLibNamesLower.has(ln)) continue;
+            }
             if (coveredNames.has(lib.name)) continue;
             // 优先使用四视图拆分面板（quad_panel_1=正面全身），次选 four_view_image_url，再选普通主图
             const libPanel = db.prepare(
@@ -747,10 +784,11 @@ async function processImageGeneration(db, log, imageGenId) {
         } catch (_) {}
 
         // ── Step 2.1: 文本补扫 — 检测 prompt/action/dialogue 中提及但未关联的角色 ────────────────
-        // 解决问题：分镜生成时漏掉的角色不会在此处被自动补充，S2 过滤也无能为力。
-        // 策略：扫描当前分镜的所有文本字段，与剧集全角色名做字符串匹配，命中但未在 refs 里的则补充。
+        // 若用户已在分镜上显式勾选角色名单（含空数组），则不再根据台词把已去掉的角色塞回参考图。
         if (row.drama_id && refs.length < 4) {
-          try {
+          if (explicitDramaCharIds !== null && explicitDramaCharIds.length === 0) {
+            // 显式清空：跳过文本补扫
+          } else try {
             let sbScanText = '';
             try {
               const sbScan = db.prepare(
@@ -771,6 +809,7 @@ async function processImageGeneration(db, log, imageGenId) {
 
             for (const dChar of dramaChars) {
               if (!dChar.name) continue;
+              if (explicitDramaCharIds !== null && !explicitDramaCharIds.includes(Number(dChar.id))) continue;
               if (coveredCharNames.has(dChar.name.toLowerCase())) continue;
               if (!scanText.includes(dChar.name.toLowerCase())) continue;
               if (refs.length >= 4) break; // 最多 4 张参考图，防止超限
@@ -809,6 +848,9 @@ async function processImageGeneration(db, log, imageGenId) {
           }
         }
 
+        if (explicitDramaCharIds !== null) {
+          skipStep23PromptCharFilter = true;
+        }
         if (refs.length > 0) {
           reference_image_urls = refs;
           reference_source = 'storyboard 自动解析';
@@ -834,6 +876,7 @@ async function processImageGeneration(db, log, imageGenId) {
       row.storyboard_id &&
       row.frame_type !== 'quad_grid' &&
       row.frame_type !== 'nine_grid' &&
+      !skipStep23PromptCharFilter &&
       reference_image_urls && reference_image_urls.length > 1 &&
       reference_context_note
     ) {
@@ -877,7 +920,8 @@ async function processImageGeneration(db, log, imageGenId) {
         }
 
         // 若过滤后至少有 1 张，则更新；否则保留全部（避免误杀）
-        if (filteredRefs.length > 0 && filteredRefs.length < reference_image_urls.length) {
+        const refCountBeforeStep23 = reference_image_urls.length;
+        if (filteredRefs.length > 0 && filteredRefs.length < refCountBeforeStep23) {
           reference_image_urls = filteredRefs;
           // 重新编号 Image N: 标签
           reference_context_note = filteredLabels
@@ -885,8 +929,9 @@ async function processImageGeneration(db, log, imageGenId) {
             .join('\n');
           log.info('[图生] Step2.3 参考图过滤完成', {
             id: imageGenId,
-            before: reference_image_urls.length + filteredLabels.length - filteredRefs.length,
+            before: refCountBeforeStep23,
             after: filteredRefs.length,
+            removed: refCountBeforeStep23 - filteredRefs.length,
           });
         }
       } catch (filterErr) {
@@ -961,7 +1006,13 @@ async function processImageGeneration(db, log, imageGenId) {
         if (anyTextConfig) {
           log.info('[图生] Step3.5 文本AI优化 prompt 开始', { id: imageGenId, elapsed: elapsed() });
           const rawSt = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
-          const style = rawSt || 'cinematic movie still, anamorphic lens, film grain, dramatic lighting, shallow depth of field, professional cinematography';
+          const styleZh = (cfg?.style?.default_style_zh || '').toString().trim();
+          const style = rawSt || styleZh || 'cinematic movie still, anamorphic lens, film grain, dramatic lighting, shallow depth of field, professional cinematography';
+          const styleBlockLines = [];
+          if (styleZh) styleBlockLines.push(`【画风·最高优先级】${styleZh}`);
+          if (rawSt && rawSt !== styleZh) styleBlockLines.push(`MANDATORY ART STYLE: ${rawSt}.`);
+          else if (rawSt && !styleZh) styleBlockLines.push(`MANDATORY ART STYLE: ${rawSt}.`);
+          else if (!styleZh && !rawSt) styleBlockLines.push(`MANDATORY ART STYLE: ${style}.`);
           const assetNames = (reference_context_note || '').split('\n')
             .map((l) => l.replace(/^Image \d+: [^"]*"([^"]+)".*/, '$1'))
             .filter(Boolean).join(', ');
@@ -999,13 +1050,14 @@ async function processImageGeneration(db, log, imageGenId) {
           }
 
           const userPromptLines = [
+            ...styleBlockLines,
             `PROMPT: ${row.prompt}`,
             sbDetail?.action     ? `ACTION: ${sbDetail.action}`        : null,
             sbDetail?.dialogue   ? `DIALOGUE: ${sbDetail.dialogue}`    : null,
             sbDetail?.result     ? `RESULT: ${sbDetail.result}`        : null,
             sbDetail?.atmosphere ? `ATMOSPHERE: ${sbDetail.atmosphere}`: null,
             sbDetail?.shot_type  ? `SHOT_TYPE: ${sbDetail.shot_type}`  : null,
-            `STYLE: ${style}`,
+            `STYLE_TOKENS (repeat in output): ${style}`,
             `ASSETS: ${assetNames || 'none'}`,
             prevContinuityState  ? `PREV_CONTINUITY_STATE: ${JSON.stringify(prevContinuityState)}` : null,
             `CONTEXT_PREV: ${prevDesc}`,

@@ -141,6 +141,11 @@ function loadScene(db, sceneId) {
 
 function buildStoryboardContext(cfg, sb, scene, characterNames) {
   const parts = [];
+  const styleZh = (cfg?.style?.default_style_zh || '').toString().trim();
+  const styleEn = (cfg?.style?.default_style_en || cfg?.style?.default_style || '').toString().trim();
+  if (styleZh) parts.push(`【画风·最高优先级】${styleZh}`);
+  if (styleEn && styleEn !== styleZh) parts.push(`MANDATORY ART STYLE: ${styleEn}`);
+  else if (styleEn && !styleZh) parts.push(`MANDATORY ART STYLE: ${styleEn}`);
   if (sb.description) {
     parts.push(promptI18n.formatUserPrompt(cfg, 'shot_description_label', sb.description));
   }

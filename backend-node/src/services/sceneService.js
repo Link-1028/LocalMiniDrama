@@ -123,12 +123,24 @@ function getSceneById(db, id) {
 
 /**
  * 将文字AI的四视图描述 + 布局指令 + 风格 合并为完整的图片AI提示词
- * 与角色的 buildFourViewImagePrompt 对应
+ * 与角色的 buildFourViewImagePrompt 对应（画风置顶 + 尾部重申）
  */
-function buildSceneFourViewImagePrompt(fourViewDescription, styleText) {
+function buildSceneFourViewImagePrompt(fourViewDescription, styleEn, styleZh) {
   const imageLayoutInstruction = promptI18n.getSceneGenerateImagePrompt();
-  const styleAppend = styleText ? ` Art style: ${styleText}.` : '';
-  return `${imageLayoutInstruction}\n\n---\n\n${fourViewDescription}\n\n---\n\nCRITICAL OUTPUT REQUIREMENT: Generate ONE single image containing a 2×2 grid (4 panels): top-left=establishing wide shot, top-right=main activity zone, bottom-left=signature environmental detail, bottom-right=atmospheric variant (different lighting/time). No human figures. No text labels.${styleAppend}`;
+  const zh = (styleZh || '').trim();
+  const en = (styleEn || '').trim();
+
+  const styleLines = [];
+  if (zh) styleLines.push(`【画风·最高优先级】四格统一：${zh}`);
+  if (en && en !== zh) styleLines.push(`MANDATORY ART STYLE (all 4 panels): ${en}.`);
+  else if (en && !zh) styleLines.push(`MANDATORY ART STYLE (all 4 panels): ${en}.`);
+  const styleHeader = styleLines.length ? `${styleLines.join('\n')}\n\n` : '';
+
+  const tailParts = [];
+  if (zh || en) tailParts.push(`Reiterate: same art style as above (${en || zh}). No people, no text.`);
+  const tail = tailParts.length ? `\n\n---\n\n${tailParts.join(' ')}` : '';
+
+  return `${styleHeader}${imageLayoutInstruction}\n\n---\n\n${fourViewDescription}${tail}`;
 }
 
 /**
@@ -181,8 +193,8 @@ async function generateScenePromptOnly(db, log, cfg, sceneId, modelName, style) 
   }
 
   const styleEn = (mergedCfg.style.default_style_en || mergedCfg.style.default_style || '').trim();
-  // Step 2: 拼接完整图片提示词（与 generateSceneFourViewImage 保持一致）
-  const polishedPrompt = buildSceneFourViewImagePrompt(fourViewDescription.trim(), styleEn);
+  const styleZh = (mergedCfg.style.default_style_zh || '').trim();
+  const polishedPrompt = buildSceneFourViewImagePrompt(fourViewDescription.trim(), styleEn, styleZh);
 
   db.prepare('UPDATE scenes SET polished_prompt = ?, updated_at = ? WHERE id = ?').run(
     polishedPrompt, new Date().toISOString(), Number(sceneId)
@@ -240,7 +252,8 @@ async function generateSceneFourViewImage(db, log, cfg, sceneId, modelName, styl
     }
 
     const styleEn = (mergedCfg.style.default_style_en || mergedCfg.style.default_style || '').trim();
-    imagePrompt = buildSceneFourViewImagePrompt(fourViewDescription, styleEn);
+    const styleZh = (mergedCfg.style.default_style_zh || '').trim();
+    imagePrompt = buildSceneFourViewImagePrompt(fourViewDescription, styleEn, styleZh);
 
     // 顺带保存，供下次复用
     try {

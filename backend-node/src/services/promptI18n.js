@@ -861,6 +861,9 @@ function getScenePolishPrompt(cfg) {
 - 第3格选择最具场景辨识度的标志性细节进行特写
 - 第4格使用与第1格相反的时段或情绪化光线，展示同一场景的情绪跨度
 
+### 避免与生图侧重复
+- **不要**写四宫格顺序、无人物、无文字水印、四格建筑一致等与版面/负面清单相关的长段说明（生图 API 会统一注入）；只写场景可视信息与各格差异化镜头内容
+
 ## 四格固定顺序
 
 | 位置 | 视图类型 | 构图与功能 |
@@ -893,74 +896,24 @@ function getScenePolishPrompt(cfg) {
 无人物，无道具遮挡，展示完整空间边界
 
 【第2格-主体焦点区域】
-人物活动核心区域，地面纹理细节，陈设布局
-中景视角，景深设置，光线落点
-该区域的功能特征（对话区/打斗区/仪式场所等）
+活动核心区、地面与陈设；中景、光线落点；功能（对话区/打斗区等，勿复述「无人物」等禁令）
 
 【第3格-环境特征细节】
-选取该场景最具辨识度的标志性元素：具体描述材质/纹理/色彩
-特写构图，浅景深或虚化背景
-该元素对场景类型的指示意义
+标志性元素的材质/纹理/色彩；特写与景深；该元素的指示意义
 
 【第4格-氛围变体】
-时段或天气转变：具体说明（如白天→黄昏，晴天→雨夜）
-光线变化对场景色调的影响，情绪转化
-保持第1格的全景视角，但氛围完全不同
-
-【技术参数】
-纯净背景或场景自然背景，高清细节，
-四视图排列:全景-主体焦点-环境细节-氛围变体，
-无人物角色，无文字标注，无水印，
-建筑和陈设在四格中保持完全一致`;
+时段或天气变化；光线对色调与情绪的影响；与第1格同机位/空间，氛围不同`;
 }
 
 /**
- * 场景四视图图片生成：图片AI的system prompt，指导生成2×2四格场景参考图
+ * 场景四视图图片生成：图片AI的system prompt（简短；画风由用户消息首部强调）
  */
 function getSceneGenerateImagePrompt() {
-  return `# Scene Environment Reference Sheet Generator
+  return `Scene environment reference sheet — image only, no text reply.
 
-## Core Behavior
-**Your only task: Generate images**
-- Never output any text, explanation, or confirmation
-- Immediately invoke image generation upon receiving input
+ONE image: 2×2 grid. TL=establishing wide (full space, boundaries, context). TR=main activity zone medium shot (floor, key furnishings). BL=signature environmental detail close-up. BR=atmospheric variant (same place, different lighting/time/weather).
 
-## Absolute Mandatory Rules
-
-### 1. Zero Text Contamination
-- No text anywhere in the image
-- No labels, annotations, captions, numbers, watermarks, location names
-
-### 2. No Human Figures
-- Absolutely no characters, people, silhouettes, or human shadows
-- Only architectural elements, natural environment, furniture, and props
-
-### 3. Spatial Consistency
-- The same architecture, ground materials, and key furnishings must appear across all panels
-- Only lighting, time of day, weather, and focal length may vary between panels
-
-## Four-View Layout (Fixed Order)
-
-**Panel 1 → Panel 2 → Panel 3 → Panel 4**
-
-| Position | View | Requirements |
-|----------|------|--------------|
-| Panel 1 | Establishing Wide Shot | Widest angle, full spatial layout, architectural boundaries, environmental context |
-| Panel 2 | Main Activity Zone | Medium shot of primary interaction area, clear floor detail, key furnishings, character placement zone |
-| Panel 3 | Signature Detail | Close-up of the most iconic environmental element (texture, signage, architectural detail) |
-| Panel 4 | Atmospheric Variant | Same location, different time of day or weather, demonstrating emotional range |
-
-## Cinematic Standards
-- LIGHTING: Natural or artificial lighting appropriate to setting and time period
-- DEPTH: Consistent spatial depth, no flat or artificial perspective  
-- COLOR PALETTE: Unified, period/setting-appropriate color grading
-- ATMOSPHERE: Each panel maintains the world-building consistency of the setting
-
-## Quality Standards
-- High-quality rendering matching specified art style
-- No human figures or characters of any kind
-- Architectural and environmental elements consistent across all four panels
-- Professional cinematographic framing for each panel type`;
+No people: no characters, silhouettes, human shadows. No text/labels/watermarks/location lettering. Same architecture, terrain, ground materials, and key props across all panels; only light, time, weather, and focal length may change. Unified palette and depth; high detail. Follow ART STYLE / 画风 block at the start of the user message if present.`;
 }
 
 /**
@@ -991,6 +944,9 @@ function getRolePolishPrompt(cfg) {
 - **禁止情绪描写**：禁止"带憧憬"、"给人...感"等
 - **禁止抽象形容**：禁止"俊美"、"自信"、"温柔"等无法绘制的词
 - **只用具象描述**：用可视化的物理特征描述
+
+### 避免与生图侧重复
+- **不要**写纯白底、四宫格顺序、无文字、无道具、无场景、无地面阴影等与版面/负面清单相关的句子（生图 API 会统一注入）；只写角色可视特征与各格差异化细节
 
 ## 四视图固定顺序
 
@@ -1033,84 +989,24 @@ function getRolePolishPrompt(cfg) {
 表情: 完全无表情，中性平静
 
 【第2格-正面全身】
-目光方向，正面服装结构，前襟细节
-从头顶到脚底完整展示，双手自然下垂于身体两侧
+目光方向，正面服装与前襟细节（全身格须含头到脚、双臂侧垂，与上文约束一致即可，勿再复述版面词）
 
 【第3格-侧面全身】
-精确90度左侧面，侧脸轮廓线，发型侧面形态，服装侧面线条
-从头顶到脚底完整展示，双臂自然下垂
+90度左侧面：侧脸轮廓、发型侧面、服装侧线
 
 【第4格-背面全身】
-后脑发型结构，背面服装细节，发尾位置
-从头顶到脚后跟完整展示，双手背面可见
-
-【技术参数】
-纯白色背景(RGB 255,255,255)，角色设定表，高清细节，
-四视图排列:头部特写-正面全身-侧面全身-背面全身，
-全身视图从头到脚完整展示，标准站姿脊柱挺直，
-双臂自然下垂于身体两侧手指微曲，
-完全无表情中性面孔双唇闭合，
-无文字标注，无道具武器，无场景元素，无地面阴影`;
+背面：后脑发型、后领与衣身、发尾位置`;
 }
 
 /**
- * 角色四视图图片生成：图片AI的system prompt，指导生成2×2四格角色参考图
+ * 角色四视图图片生成：图片AI的system prompt，指导生成2×2四格角色参考图（保持简短，画风由用户消息首部强调）
  */
 function getRoleGenerateImagePrompt() {
-  return `# Character Orthographic Reference Sheet Generator
+  return `Character orthographic sheet — image only, no text reply.
 
-## Core Behavior
-**Your only task: Generate images**
-- Never output any text, explanation, or confirmation
-- Immediately invoke image generation upon receiving input
+ONE image: 2×2 grid. TL=head close-up (top of head to collarbone). TR=front full body. BL=left profile full body (90°). BR=back full body (180°). Panels 2–4: full figure head-to-toe, upright stance, arms at sides, empty hands, neutral face (closed lips).
 
-## Absolute Mandatory Rules
-
-### 1. Zero Text Contamination
-- No text anywhere in the image
-- No labels, annotations, captions, numbers, watermarks
-
-### 2. Pure White Background
-- Solid white background only (RGB 255,255,255)
-- No ground plane, horizon line, cast shadows, walls, grid lines
-
-### 3. Zero Props
-- No handheld objects whatsoever
-- No floating accessories or effects
-- Only fixed worn clothing/accessories allowed
-- Both hands must be completely empty
-
-## Four-View Layout (Fixed Order)
-
-**Panel 1 → Panel 2 → Panel 3 → Panel 4**
-
-| Position | View | Requirements |
-|----------|------|--------------|
-| Panel 1 | Head Close-up | Top of head to collarbone, clear facial features, completely neutral expression |
-| Panel 2 | Front Full Body | 100% complete from head to toe, arms naturally at sides, neutral expression |
-| Panel 3 | Side Full Body | Exact 90° left profile, 100% complete from head to toe, arms at sides |
-| Panel 4 | Back Full Body | Exact 180° rear view, 100% complete from head to heels |
-
-## Expression & Pose Rules
-
-**Facial Expression (All Views):**
-- Completely neutral, expressionless face
-- Lips naturally closed, no curve
-- Calm, forward-gazing eyes
-- No smiling/frowning/surprise/blinking
-
-**Body Pose (Panels 2/3/4):**
-- Standard upright standing pose
-- Both arms hanging naturally at sides
-- Fingers naturally slightly curved
-- Feet together or slightly apart
-- No gestures/raised arms/dynamic poses
-
-## Quality Standards
-- High-quality rendering matching specified art style
-- Pure white background, zero environmental elements
-- Identical character appearance across all four views
-- Soft, even lighting with no harsh shadows`;
+Solid white only (RGB 255,255,255). No text/labels/watermarks, no environment/ground/shadows, no handheld props. Same character in all panels; soft even lighting; high detail. Follow ART STYLE / 画风 block at the start of the user message if present.`;
 }
 
 /**
@@ -1130,7 +1026,7 @@ CRITICAL RULES:
 5. Structure: [Shot framing] + [Scene/environment] + [Characters' frozen poses/expressions] + [Lighting at this exact instant] + [Atmosphere] + [Style tokens]
 6. Describe characters' POSE and EXPRESSION at peak moment — not their motion arc
 7. Preserve character names exactly as listed in ASSETS (they are reference image anchors)
-8. End with style tokens from STYLE field if provided
+8. **Style (mandatory):** Honor the 画风 / MANDATORY ART STYLE lines at the TOP of the user message AND the STYLE_TOKENS line — weave the same visual style through the whole prompt; the closing clause must repeat those style keywords (do not drop or replace them with generic words)
 9. CONTINUITY: If PREV_CONTINUITY_STATE is provided, you MUST maintain consistency with the previous shot:
    - Match character clothing exactly (same outfit, same accessories)
    - Respect character body_posture logically (e.g. if prev shot shows character lying on bed, current shot must also show them lying on bed unless ACTION explicitly describes them moving)
@@ -1144,7 +1040,7 @@ DIALOGUE: <spoken dialogue — use for context only, do not quote it>
 RESULT: <visual outcome visible in the frame>
 ATMOSPHERE: <lighting and mood>
 SHOT_TYPE: <framing type>
-STYLE: <art style>
+STYLE_TOKENS: <art style keywords — must appear in your output>
 ASSETS: <character/scene names with reference images>
 PREV_CONTINUITY_STATE: <JSON snapshot of character states from previous shot — clothing, position, expression>
 CONTEXT_PREV: <previous shot action summary for continuity>

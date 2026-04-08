@@ -363,7 +363,7 @@ function normalizeVolcOmniDuration(modelName, durationNum) {
 /**
  * 火山引擎方舟 — Seedance 2.0 等「全能/多参考图」视频
  * 与标准 volcengine 共用：POST {base}/contents/generations/tasks，GET {base}/contents/generations/tasks/{id}
- * content：首条 text；多图时首图 i2v（无 role），其余 role=reference_image（与方舟多图参考示例一致）
+ * content：首条 text；全能模式每张均为参考图（场景/角色/道具…），每张必须带 role：一律 reference_image
  */
 async function callVolcengineOmniVideoApi(config, log, opts) {
   const {
@@ -435,9 +435,11 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
           } catch (_) {}
         }
       }
-      const part = { type: 'image_url', image_url: { url: u } };
-      const pushedCount = body.content.length - 1;
-      if (pushedCount >= 1) part.role = 'reference_image';
+      const part = {
+        type: 'image_url',
+        image_url: { url: u },
+        role: 'reference_image',
+      };
       body.content.push(part);
     }
     if (body.content.length > 1) body.task_type = 'i2v';
@@ -2084,7 +2086,7 @@ async function callVideoApi(db, log, opts) {
   if (volcTaskType) body.task_type = volcTaskType;
   if (hasImage && imageUrlForApi) {
     const imagePart = { type: 'image_url', image_url: { url: imageUrlForApi } };
-    if (volcTaskType !== 'i2v') imagePart.role = 'reference_image';
+    imagePart.role = volcTaskType === 'i2v' ? 'first_frame' : 'reference_image';
     body.content.push(imagePart);
   }
 

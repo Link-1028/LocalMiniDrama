@@ -4,7 +4,7 @@
 
 **A locally-running AI short drama & comic generator — download and run, no cloud required, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.2.5-blue?style=flat-square)](../../releases)
+[![version](https://img.shields.io/badge/version-1.2.6-blue?style=flat-square)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -182,7 +182,7 @@ LocalMiniDrama/
 
 Full version history → **[CHANGELOG](changelog.md)**
 
-**Latest v1.2.5 highlights:**
+**Latest v1.2.6 highlights:**
 - 🆕 **Seedance 2.0 (Volcengine Ark)** — multi-reference video via **`volcengine_omni`**; models such as `doubao-seedance-2-0-260128` (see console); duration for Seedance **2.x** clamped to **4–15s**; references sent as **`reference_image`**
 - 🆕 **Storyboard “Universal mode”** — center panel is a **segment prompt** stored as `universal_segment_text`; works with **`kling_omni`** or **`volcengine_omni`**; **`@图片N`** slots and “generate from storyboard” workflow
 

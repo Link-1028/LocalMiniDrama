@@ -6,7 +6,7 @@
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.2.5-blue?style=flat-square)](../../releases)
+[![version](https://img.shields.io/badge/version-1.2.6-blue?style=flat-square)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -239,7 +239,7 @@ LocalMiniDrama/
 
 查看完整更新记录 → **[CHANGELOG](docs/changelog.md)**
 
-**最新版 v1.2.5 亮点：**
+**最新版 v1.2.6 亮点：**
 - 🆕 **Seedance 2.0 接入**：火山方舟多参考图视频链路；AI 配置视频中选接口规范 **`volcengine_omni`**，模型如 `doubao-seedance-2-0-260128` 等（以控制台为准）；后端对 Seedance **2.x** 时长 **4–15 秒**吸附、参考图 **`reference_image`** 组装
 - 🆕 **分镜全能模式**：制作页分镜切换「全能模式」，中间编辑**片段描述**（`universal_segment_text`）；与可灵 **`kling_omni`** 或火山 **`volcengine_omni`** 配合，多素材参考图一键提交；**`@图片1`…** 编排与「根据分镜生成提示词」工作流
 

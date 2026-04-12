@@ -255,6 +255,7 @@ function generateStoryboard(db, log) {
         video_duration: body.video_duration,
         aspect_ratio: body.aspect_ratio,
         include_narration: body.include_narration,
+        universal_omni_storyboard: body.universal_omni_storyboard,
       });
       response.success(res, resData);
     } catch (err) {

@@ -202,7 +202,12 @@
         <el-form ref="formRef" :model="form" label-width="100px">
           <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API Key', trigger: 'blur' }]">
             <template #label><span class="form-label-tip">API Key</span></template>
-            <el-input v-model="form.api_key" type="password" placeholder="输入你的 API 密钥" show-password />
+            <el-input
+              v-model="form.api_key"
+              type="password"
+              :placeholder="form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : '输入你的 API 密钥'"
+              show-password
+            />
           </el-form-item>
           <el-form-item>
             <template #label><span class="form-label-tip">默认模型</span></template>
@@ -301,12 +306,14 @@
           <el-select v-model="form.api_protocol" style="width: 100%" placeholder="选择接口规范（自定义厂商必选）" clearable>
             <el-option label="OpenAI 兼容（大多数中转站默认）" value="openai" />
             <el-option label="火山引擎（豆包 Seedream / Seedance）" value="volcengine" />
+            <el-option label="火山即梦 Seedance 全能（方舟多图参考，Seedance 2.0 等）" value="volcengine_omni" />
             <el-option label="通义万象 DashScope" value="dashscope" />
             <el-option label="Google Gemini（图片 / Veo 视频）" value="gemini" />
             <el-option label="Sora 中转站（multipart/form-data，seconds+size）" value="sora" />
             <el-option label="Veo3 兼容（JSON，images+enhance_prompt，自动翻译英文）" value="veo3" />
             <el-option label="Vidu 视频" value="vidu" />
             <el-option label="可灵 Omni-Video（官方 api-beijing / ffir 中转，O1 全能）" value="kling_omni" />
+            <el-option label="xAI Grok Imagine（官方 prompt + aspect_ratio，/v1/videos/generations）" value="xai" />
             <el-option label="NanoBanana" value="nano_banana" />
           </el-select>
         </el-form-item>
@@ -395,12 +402,29 @@ input_reference = (图片文件，可选)</pre>
               <el-collapse-item name="volcengine-vid">
                 <template #title><span class="ph-tag ph-tag-vid">视频</span> 火山引擎 — 豆包 Seedance</template>
                 <div class="ph-body">
-                  <b>Endpoint：</b><code>POST /api/v3/videos/generations</code><br>
+                  <b>Endpoint：</b><code>POST …/contents/generations/tasks</code>（与后端一致）<br>
                   <b>Base URL：</b><code>https://ark.cn-beijing.volces.com/api/v3</code><br>
                   <pre>{ "model": "doubao-seedance-1-5-pro-251215",
   "content": [{ "type": "text", "text": "..." }],
   "ratio": "9:16", "duration": 5,
   "watermark": false, "resolution": "720p" }</pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="volcengine-omni-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> 火山即梦 Seedance 全能（多图参考）</template>
+                <div class="ph-body">
+                  <b>适用：</b>方舟 Seedance 2.0 等支持多参考图的全能链路；与「全能模式」分镜、<code>@图片1</code>… 提示词配合使用。<br>
+                  <b>Endpoint：</b><code>POST {base}/contents/generations/tasks</code>，轮询 <code>GET {base}/contents/generations/tasks/{taskId}</code><br>
+                  <b>厂商：</b>仍选「火山引擎」，<b>接口规范</b>选本项；模型填控制台接入点（如 <code>doubao-seedance-2-0-260128</code>，以控制台为准）。<br>
+                  <pre>{ "model": "doubao-seedance-2-0-260128",
+  "task_type": "i2v",
+  "content": [
+    { "type": "text", "text": "… @图片1 … @图片2 …" },
+    { "type": "image_url", "image_url": { "url": "https://..." } },
+    { "type": "image_url", "image_url": { "url": "https://..." }, "role": "reference_image" }
+  ],
+  "ratio": "9:16", "duration": 8, "watermark": false }</pre>
+                  <b>说明：</b>全能模式下列均为参考图（场景、角色…），每张均 <code>role: reference_image</code>；最多 9 张，时长 Seedance 2.x 按 4–15 秒吸附。
                 </div>
               </el-collapse-item>
               <el-collapse-item name="dashscope-vid">
@@ -436,6 +460,15 @@ input_reference = (图片文件，可选)</pre>
   "watermark": false
 }</pre>
                   <b>注意：</b>官方 api.vidu.cn 用 <code>Token</code> 认证，中转站用 <code>Bearer</code>，系统自动识别。localhost 图片自动上传图床。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="jimeng-ai-api-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> Jimeng AI API（自建服务）</template>
+                <div class="ph-body">
+                  <b>说明：</b>需自行部署 <code>jimeng-free-api-all</code> 等即梦 OpenAI 兼容服务并启动（如 <code>http://127.0.0.1:8000</code>）。本系统仅作为客户端转发请求。<br>
+                  <b>Base URL：</b>填你的服务根地址，无尾斜杠。<br>
+                  <b>API Key：</b>填即梦网页 <b>Session</b>；多个账号用<b>英文逗号</b>分隔，由对方服务轮询使用。<br>
+                  <b>默认路径：</b><code>POST /v1/videos/generations</code>（可在「Endpoint」覆盖）。Seedance 多图需分镜参考图；响应为同步 <code>data[0].url</code>。
                 </div>
               </el-collapse-item>
             </el-collapse>
@@ -485,7 +518,12 @@ input_reference = (图片文件，可选)</pre>
               </el-tooltip>
             </span>
           </template>
-          <el-input v-model="form.api_key" type="password" placeholder="API 密钥" show-password />
+          <el-input
+            v-model="form.api_key"
+            type="password"
+            :placeholder="form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥'"
+            show-password
+          />
         </el-form-item>
         <template v-if="form.service_type === 'video' && form.api_protocol === 'kling_omni'">
           <el-form-item>
@@ -597,7 +635,7 @@ input_reference = (图片文件，可选)</pre>
                     <div class="cfg-tip-content">
                       接口路径，追加在 Base URL 之后。<br>
                       <b>预设厂商</b>（火山 / 通义 / NanoBanana）留空，系统自动推断。<br>
-                      <b>视频自定义厂商</b>必须填写，如 /v1/video/generations<br>
+                      <b>视频自定义厂商</b>必须填写，如 /v1/videos/generations<br>
                       <b>NanoBanana 代理</b>填写代理路径，如 /fal-ai/nano-banana
                     </div>
                   </template>
@@ -605,7 +643,7 @@ input_reference = (图片文件，可选)</pre>
                 </el-tooltip>
               </span>
             </template>
-            <el-input v-model="form.endpoint" :placeholder="form.service_type === 'video' ? '自定义视频厂商必填，如 /v1/video/generations；预设厂商留空' : '代理或特殊厂商时填写，如 /fal-ai/nano-banana；预设厂商留空'" />
+            <el-input v-model="form.endpoint" :placeholder="form.service_type === 'video' ? '自定义视频厂商必填，如 /v1/videos/generations；预设厂商留空' : '代理或特殊厂商时填写，如 /fal-ai/nano-banana；预设厂商留空'" />
           </el-form-item>
           <el-form-item>
             <template #label>
@@ -1078,12 +1116,25 @@ const providerConfigs = {
     { id: 'ffir', name: '飞儿API / 可灵 Omni-Video (ffir.cn)', models: ['kling-video-o1', 'kling-v3-omni'] },
     { id: 'kling', name: '可灵 Kling', models: ['kling-omni-video', 'kling-video', 'kling-motion-control'] },
     { id: 'vidu', name: 'Vidu', models: ['viduq2', 'viduq2-pro', 'viduq2-turbo', 'viduq3-pro'] },
-    { id: 'volces', name: '火山引擎', models: ['doubao-seedance-1-5-pro-251215', 'doubao-seedance-1-0-lite-i2v-250428', 'doubao-seedance-1-0-lite-t2v-250428', 'doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-0-pro-fast-251015'] },
+    { id: 'volces', name: '火山引擎', models: ['doubao-seedance-2-0-260128', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-1-5-pro-251215', 'doubao-seedance-1-0-lite-i2v-250428', 'doubao-seedance-1-0-lite-t2v-250428', 'doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-0-pro-fast-251015'] },
     // { id: 'chatfire', name: 'Chatfire', models: ['doubao-seedance-1-5-pro-251215', 'doubao-seedance-1-0-lite-i2v-250428', 'doubao-seedance-1-0-lite-t2v-250428', 'doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-0-pro-fast-251015', 'sora-2', 'sora-2-pro'] },
     { id: 'minimax', name: 'MiniMax 海螺', models: ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-2.3-Fast', 'MiniMax-Hailuo-02'] },
     { id: 'gemini', name: 'Google Gemini (Veo)', models: ['veo-3.1-generate-preview', 'veo-3.0-generate-preview', 'veo-3.0-fast-generate-preview'] },
     { id: 'dashscope', name: '通义万相', models: ['wan2.6-r2v-flash', 'wan2.6-t2v', 'wan2.2-kf2v-flash', 'wan2.6-i2v-flash', 'wanx2.1-vace-plus'] },
-    { id: 'openai', name: 'OpenAI', models: ['sora-2', 'sora-2-pro'] }
+    {
+      id: 'jimeng_ai_api',
+      name: 'Jimeng AI API（自建即梦免费 API）',
+      models: [
+        'jimeng-video-seedance-2.0',
+        'seedance-2.0',
+        'jimeng-video-seedance-2.0-fast',
+        'jimeng-video-3.0',
+        'jimeng-video-3.0-pro',
+        'jimeng-video-3.5-pro',
+      ],
+    },
+    { id: 'openai', name: 'OpenAI', models: ['sora-2', 'sora-2-pro'] },
+    { id: 'xai', name: 'xAI Grok Imagine', models: ['grok-imagine-video'] },
   ],
   tts: [
     { id: 'minimax', name: 'MiniMax T2A', models: ['speech-02-hd', 'speech-02-turbo'] },
@@ -1106,11 +1157,14 @@ const providerProtocolMap = {
   klingai: 'kling_omni',
   // video
   vidu: 'vidu',
+  xai: 'xai',
+  grok: 'xai',
   minimax: 'openai',
   openai: 'openai',
   chatfire: 'openai',
   qwen: 'openai',
   deepseek: 'openai',
+  jimeng_ai_api: 'jimeng_ai_api',
 }
 
 /** 厂商 id → 默认 Base URL（与参考前端 AIConfigDialog 757-775 一致） */
@@ -1130,6 +1184,8 @@ function getBaseUrlForProvider(provider) {
   if (p === 'kling') return 'https://api.klingai.com'
   if (p === 'klingai') return 'https://api-beijing.klingai.com'
   if (p === 'ffir') return 'https://ffir.cn'
+  if (p === 'jimeng_ai_api') return 'http://127.0.0.1:8000'
+  if (p === 'xai' || p === 'grok') return 'https://api.x.ai'
   return 'https://api.chatfire.site/v1'
 }
 
@@ -1193,9 +1249,11 @@ const endpointPreviewInfo = computed(() => {
     } else {
       submitPath = '/images/generations'  // openai 兼容：base_url 已含 /v1
     }
-  } else if (service_type === 'video') {
+    } else if (service_type === 'video') {
     if (endpoint) {
       submitPath = endpoint
+    } else if (proto === 'volcengine_omni') {
+      submitPath = '/contents/generations/tasks'
     } else if (proto === 'volcengine' || p === 'volces' || p === 'volcengine') {
       submitPath = '/videos/generations'
     } else if (proto === 'dashscope' || p === 'dashscope') {
@@ -1212,8 +1270,17 @@ const endpointPreviewInfo = computed(() => {
       submitPath = '/ent/v2/img2video'
     } else if (proto === 'sora') {
       submitPath = '/v1/videos'
+    } else if (proto === 'xai') {
+      submitPath = '/v1/videos/generations'
     } else if (proto === 'veo3') {
       submitPath = '/v1/video/create'
+    } else if (proto === 'jimeng_ai_api' || p === 'jimeng_ai_api') {
+      submitPath = endpoint || '/v1/videos/generations'
+      return {
+        submit: (base || '(请填 Base URL)') + submitPath + '  （Bearer 为即梦 Session，可多账号英文逗号分隔；同步返回 data[0].url）',
+        query: null,
+        isAuto: true,
+      }
     } else if (proto === 'kling_omni' || p === 'ffir' || p === 'klingai') {
       const omniFfir = p === 'ffir' || /ffir\.cn/i.test(base)
       const omniKlingOfficial = p === 'klingai' || /api(-beijing|-singapore)?\.klingai\.com/i.test(base)
@@ -1228,6 +1295,8 @@ const endpointPreviewInfo = computed(() => {
 
     if (query_endpoint) {
       queryPath = query_endpoint
+    } else if (proto === 'volcengine_omni') {
+      queryPath = '/contents/generations/tasks/{taskId}'
     } else if (proto === 'volcengine' || p === 'volces' || p === 'volcengine') {
       queryPath = '/tasks/{taskId}/info'
     } else if (proto === 'dashscope' || p === 'dashscope') {
@@ -1235,6 +1304,8 @@ const endpointPreviewInfo = computed(() => {
     } else if (proto === 'vidu' || p === 'vidu') {
       queryPath = '/ent/v2/tasks/{taskId}/creations'
     } else if (proto === 'sora') {
+      queryPath = '/v1/videos/{taskId}'
+    } else if (proto === 'xai') {
       queryPath = '/v1/videos/{taskId}'
     } else if (proto === 'veo3') {
       queryPath = '/v1/video/query?id={taskId}'
@@ -1288,6 +1359,10 @@ function onProviderChange(providerId) {
   form.value.default_model = (p.models && p.models[0]) || ''
   // 自动填充接口规范
   form.value.api_protocol = providerProtocolMap[providerId] || (st === 'text' ? '' : 'openai')
+  if (st === 'video' && providerId === 'jimeng_ai_api') {
+    form.value.endpoint = ''
+    form.value.query_endpoint = ''
+  }
   if (st === 'video' && (providerId === 'ffir' || providerId === 'klingai')) {
     if (providerId === 'ffir') {
       form.value.endpoint = '/kling/v1/videos/omni-video'

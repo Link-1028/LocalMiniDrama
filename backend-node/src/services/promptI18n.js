@@ -242,6 +242,45 @@ function getStoryboardSystemPrompt(cfg) {
 - segment_index 必须从0开始递增的整数，同一段落内所有镜头共享相同的 segment_index 和 segment_title`;
 }
 
+/**
+ * 分镜生成「全能模式」：在系统提示末尾追加，使 JSON 每镜带 creation_mode + universal_segment_text（灵境 SoulLens SEEDANCE 单行规范）
+ */
+function getStoryboardUniversalOmniModeSuffix(cfg) {
+  if (isEnglish(cfg)) {
+    return `
+
+[HIGHEST PRIORITY — UNIVERSAL / OMNI VIDEO PROMPT MODE]
+This run is "AI universal storyboard" mode. EVERY shot object MUST include two extra fields in addition to all existing required fields:
+1. "creation_mode": the exact string "universal".
+2. "universal_segment_text": ONE single line only (NO line breaks). This is a **VIDEO clip prompt** for the whole shot duration (use JSON "duration" seconds — often 8–15s), NOT a still-frame / key-art description. Dense SoulLens-style SEEDANCE row. Each segment must be visually specific (forbid placeholder fluff). The line MUST contain these labeled segments in order, separated by spaces:
+   主体: @人物1 (brief mood/posture)[facing hint] 正在 [motion with tempo across time] + micro-expression（与上镜衔接: shot 1 = 开篇情绪奠基; later = continuity or turn); add @人物2 … in characters[] order.
+   叙事动态: In ONE breath, time-ordered mini beat for **this shot's duration**: where we are, who does what **first then next** (entry/exit/chase/kneel/pick up), how space reads; must read like storyboard for **motion picture**, not a frozen tableau.
+   空间: 前景-[...] 中景-[...] 背景-[...]
+   光影: [direction + color temp + contrast + material]
+   镜头: MUST include a **camera motion chain** (at least TWO concrete moves, join with comma/顿号 or 起→承→合). Use SoulLens-like vocabulary where fit: 定镜, 缓推轨, 横移, 摇镜, 跟拍, 手持微晃, 从前景遮挡物后横移滑出, 拉焦, 缓升 — plus shot size, angle, composition（two-shot: 轴线：A在画左·B在画右）（结尾动势: toward next beat）. For duration ≥ 8s, **forbidden** to summarize the whole clip as only "特写+固定" or static single framing without staged camera change or reveal.
+   台词: 第Xs @人物N:"dialogue"（omit if none）
+   音效: 环境层-[...] 动作层-[...] 情绪层-[non-melodic] [style tag] [禁BGM][禁字幕]
+Hard rules: (1) affirmative wording only. (2) [禁BGM][禁字幕] ONLY at the very end. (3) No --ar/--motion/--quality. (4) No @图片N; use @人物N from characters[] order.
+If characters is empty, use @人物1 as generic label.`;
+  }
+  return `
+
+【最高优先级——灵境式全能分镜 / SEEDANCE 视频提示词】
+本任务为「AI生成全能分镜」模式：每个镜头对象在保留上述全部原有字段的同时，还必须额外包含：
+1. "creation_mode"：固定字符串 "universal"（不可省略）。
+2. "universal_segment_text"：严格单行字符串（禁止换行），供 **视频生成**（Seedance / 可灵 Omni 等）使用。必须按本镜 JSON 字段 **duration 的秒数** 写满「一段时间里发生的事」，是 **动态影像分镜** ，不是单帧插图说明；禁止只描写某一瞬间的构图而忽略时间流逝内的走位、阶段变化与镜头运动。
+   按顺序包含下列字段段（段名后中文冒号，段间空格；禁止空壳短语）：
+   主体：@人物1（神态四字内）[朝向：画左/画右/面向对手择一] 正在 [带速度节奏的肢体动作链] + 微表情（与上镜衔接：首镜「开篇情绪奠基」，其余接上一镜）；多角色按 characters[] 写 @人物2 …
+   叙事动态：用逗号或小句串联 **本镜 duration 秒内** 的时间线——先交代空间一句，再写 @人物1 从哪到哪/先后动作阶段，若有 @人物2 写其入画或反应时机；必须出现「谁在动、如何动、与谁/何物发生关系」，读起来像迷你分场剧本，而非静物摄影说明。
+   空间：前景-[…] 中景-[…] 背景-[…]（随人物走位可略有变化则点明）
+   光影：[主光+色温+明暗比+质感]
+   镜头：**运镜链** 必须至少两步，用顿号、逗号或「起→承→合」连接，优先使用灵境式组合词：**定镜**、**缓推轨**、**横移**、**摇镜**、**跟拍**、**手持微晃**、**从前景遮挡物或门柱后横移滑出**、**拉焦**、**缓升** 等；写明与人物位移的配合（例：人物冲出时侧后方跟拍→至门口横移滑出遮挡 reveal 街道与人群）。景别+机位+构图写在运镜链中或紧挨其后。（双人须含「轴线：A在画左·B在画右」）（结尾动势：指向下镜）。**若 duration≥8**：严禁用「仅特写+全程固定」一句话概括整段 clip。
+   台词：第Xs @人物N："对白原文"（无则省略）
+   音效：环境层-[…] 动作层-[…] 情绪层-[无旋律声层] + 视觉风格短句（八字以上） + 整行最末 [禁BGM][禁字幕]
+铁律：①全部肯定句 ②[禁BGM][禁字幕] 仅在整行最后 ③禁止 --ar、--motion、--quality ④禁止 @图片N；人物用 @人物1… 与 characters[] 一致。
+若 characters 为空，仍用 @人物1。`;
+}
+
 /** 分镜生成勾选「解说旁白」时追加到用户提示词末尾 */
 function getStoryboardNarrationExtraInstructions(cfg) {
   if (isEnglish(cfg)) {
@@ -623,8 +662,11 @@ Your task is to extract and organize all key props that are important to the plo
 [Requirements]
 1. Extract ONLY key props that are important to the plot or have special visual characteristics.
 2. Do NOT extract common daily items (e.g., normal cups, pens) unless they have special plot significance.
-3. If a prop has a clear owner, please note it in the description.
-4. "image_prompt" field is for AI image generation, must describe the prop's appearance, material, color, and style in detail.
+3. If a prop has a clear owner, note it **only** in "description" (Chinese OK). **Never** put character names, nicknames, or relationship words in "image_prompt".
+4. "image_prompt" must be **English**, written as a **professional catalog / product-hero** shot for a single prop: describe shape, material, color, wear, scale cues, and finish in detail.
+5. In "image_prompt" you **must** specify: **one seamless solid-color studio backdrop** (matte, no gradient), **only the prop as the sole subject**, **soft even studio lighting** (readable micro-detail, no dramatic movie lighting), and explicitly forbid people, hands, furniture, floors, tables, scenery, packaging (unless the prop *is* the package), text, logos, dust/debris, or any secondary objects.
+6. **No script leakage in "image_prompt"**: forbid character names, place names, organization names, dialogue, plot beats, and other **original-script identifiers**. Replace with generic visual terms (e.g. "engraved serif lettering" instead of a name). The **only** exception is text that is **visibly printed or engraved on the prop itself** as part of its graphic design—describe that text generically if possible ("small engraved inscription") unless the script explicitly requires exact wording on the object.
+7. **Strict, non-expanding "image_prompt"**: include **only** attributes grounded in the script or the "description" you output—**no** invented accessories, era/brand backstory, mood adjectives unrelated to materials, or "hero story" filler. Prefer a **tight** prompt over a long one.
 - **Style Requirement**: ${style}
 - **Image Ratio**: ${imageRatio}
 
@@ -634,9 +676,9 @@ Each object containing:
 - name: Prop Name
 - type: Type (e.g., Weapon/Key Item/Daily Item/Special Device)
 - description: Role in the drama and visual description
-- image_prompt: English image generation prompt (Focus on the object, isolated, detailed, cinematic lighting, high quality)`;
+- image_prompt: English hero product shot prompt (single prop, solid seamless backdrop, no clutter, no environment, soft studio light, tight wording, no names/places from script, ultra-detailed only where visually grounded)`;
   }
-  const _propLocked = `\n- **风格要求**：${style}\n- **图片比例**：${imageRatio}\n\n【输出格式】\n**重要：必须只返回纯JSON数组，不要包含任何markdown代码块、说明文字或其他内容。直接以 [ 开头，以 ] 结尾。**\n每个对象包含：\n- name: 道具名称\n- type: 类型 (如：武器/关键证物/日常用品/特殊装置)\n- description: 在剧中的作用和中文外观描述\n- image_prompt: 英文图片生成提示词 (Focus on the object, isolated, detailed, cinematic lighting, high quality)`;
+  const _propLocked = `\n- **风格要求**：${style}\n- **图片比例**：${imageRatio}\n\n【输出格式】\n**重要：必须只返回纯JSON数组，不要包含任何markdown代码块、说明文字或其他内容。直接以 [ 开头，以 ] 结尾。**\n每个对象包含：\n- name: 道具名称\n- type: 类型 (如：武器/关键证物/日常用品/特殊装置)\n- description: 在剧中的作用和中文外观描述（人名、归属可写在此字段，勿写入 image_prompt）\n- image_prompt: 英文单道具主图提示词（纯色无缝背景、仅主体、无杂物无场景、柔和棚拍光；**禁止**剧本人名/地名/组织名/台词/剧情标签；只写有依据的外观词，**不脑补、不扩写**）`;
   const _propOverride = _overrideCache['prop_extraction'];
   if (_propOverride) {
     return _propOverride + _propLocked;
@@ -648,8 +690,11 @@ Each object containing:
 要求：
 1. 只提取对剧情发展有重要作用、或有特殊视觉特征的关键道具。
 2. 普通的生活用品（如普通的杯子、笔）如果无特殊剧情意义不需要提取。
-3. 如果道具有明确的归属者，请在描述中注明。
-4. "image_prompt"字段是用于AI生成图片的英文提示词，必须详细描述道具的外观、材质、颜色、风格。
+3. 若道具有明确归属者，**仅**写在 "description" 中（可用中文人名）；**禁止**在 "image_prompt" 中出现任何角色名、昵称、称谓或人际关系用语。
+4. "image_prompt" 必须为**英文**，按**影视资产库 / 电商主图级**单道具产品照来写：写清轮廓、材质、颜色、磨损与工艺细节、体量感。
+5. "image_prompt" 中**必须**写明：**单一无缝纯色棚拍背景**（哑光、无渐变）、**画面中仅有该道具一个主体**、**柔和均匀的棚拍光**（便于看清细节，避免电影化强反差光），并**明确禁止**：人物、手、家具、地面/台面、室内外环境、散落杂物、其他道具、文字商标、包装（除非该道具本身就是包装）、烟尘粒子等任何多余元素。
+6. **image_prompt 禁止泄漏剧本特征**：不得出现剧本人名、地名、组织名、台词、情节梗专有称呼等；一律改写为**泛化视觉描述**（如用 "small engraved inscription" 而非具体人名）。**唯一例外**：文字**实体印/刻在道具表面**且剧本明确要求还原该字样时，可保留该可见字样；否则用泛化描述。
+7. **image_prompt 严格不扩展**：只写剧本与你在本对象 "description" 中已交代、且**肉眼可见**的外观信息；禁止凭空增加配饰、品牌故事、时代煽情形容词、叙事性铺垫；宁可**短而准**，不要为凑字数扩写。
 - **风格要求**：${style}
 - **图片比例**：${imageRatio}
 
@@ -659,7 +704,7 @@ Each object containing:
 - name: 道具名称
 - type: 类型 (如：武器/关键证物/日常用品/特殊装置)
 - description: 在剧中的作用和中文外观描述
-- image_prompt: 英文图片生成提示词 (Focus on the object, isolated, detailed, cinematic lighting, high quality)`;
+- image_prompt: 英文单道具主图提示词（纯色无缝背景、仅主体、无杂物无场景、柔和棚拍光；无剧本人名地名等；只写有依据的外观词，简练不扩写）`;
 }
 
 function getSceneExtractionPrompt(cfg, style) {
@@ -793,7 +838,7 @@ function getDefaultPromptBody(key) {
       return '【任务】从剧本中提取所有唯一的场景背景\n\n【要求】\n1. 识别剧本中所有不同的场景（地点+时间组合）\n2. 为每个场景生成详细的**中文**图片生成提示词（Prompt）\n3. **重要**：场景描述必须是**纯背景**，不能包含人物、角色、动作等元素\n4. **重要**：prompt 字段必须为中文，不得使用英文（风格词如 realistic 可保留）';
 
     case 'prop_extraction':
-      return '你是一位专业的剧本道具分析师，擅长从剧本中提取具有视觉特征的关键道具。\n\n你的任务是根据提供的剧本内容，提取并整理所有对剧情有重要作用或有特殊视觉特征的关键道具。\n\n要求：\n1. 只提取对剧情发展有重要作用、或有特殊视觉特征的关键道具。\n2. 普通的生活用品（如普通的杯子、笔）如果无特殊剧情意义不需要提取。\n3. 如果道具有明确的归属者，请在描述中注明。\n4. "image_prompt"字段是用于AI生成图片的英文提示词，必须详细描述道具的外观、材质、颜色、风格。';
+      return '你是一位专业的剧本道具分析师，擅长从剧本中提取具有视觉特征的关键道具。\n\n你的任务是根据提供的剧本内容，提取并整理所有对剧情有重要作用或有特殊视觉特征的关键道具。\n\n要求：\n1. 只提取对剧情发展有重要作用、或有特殊视觉特征的关键道具。\n2. 普通的生活用品（如普通的杯子、笔）如果无特殊剧情意义不需要提取。\n3. 归属者、剧中人名等**只**写在 "description"，**不要**写进 "image_prompt"。\n4. "image_prompt" 必须为英文，按「产品主图 / 资产白模照」标准撰写：只描述该道具本体（造型、材质、颜色、工艺与磨损），并强制纯色无缝棚拍背景、无场景无杂物。\n5. "image_prompt" 须明确排除人物、手、家具、台面、其他物体与环境叙事元素。\n6. "image_prompt" **禁止**出现剧本人名、地名、组织名、台词、剧情专有词；用泛化视觉词替代，且**禁止无依据扩写**（不凭空加配饰、品牌叙事、煽情形容词）。';
 
     case 'storyboard_user_suffix':
       return '【分镜要素】每个镜头聚焦单一动作，描述要详尽具体：\n1. **镜头标题(title)**：用3-5个字概括该镜头的核心内容或情绪\n2. **时间**：[清晨/午后/深夜/具体时分+详细光线描述]\n3. **地点**：[场景完整描述+空间布局+环境细节]\n4. **镜头设计**：**景别(shot_type)**、**镜头角度(angle)**、**运镜方式(movement)**\n5. **人物行为**：**详细动作描述**\n6. **对话/独白**：提取该镜头中的完整对话或独白内容（如无对话则为空字符串）\n7. **画面结果**：动作的即时后果+视觉细节+氛围变化\n8. **环境氛围**：光线质感+色调+声音环境+整体氛围\n9. **配乐提示(bgm_prompt)**、**音效描述(sound_effect)**\n10. **观众情绪**：[情绪类型]（[强度：↑↑↑/↑↑/↑/→/↓]）\n\n**dialogue字段说明**：角色名："台词内容"。无对话时填空字符串""。\n**scene_id**：从上方场景列表中选择最匹配的背景ID，如无合适背景则填null。\n**duration时长**：综合对话、动作、情绪估算每镜时长（具体目标秒数由系统自动注入）。';
@@ -826,7 +871,7 @@ function getLockedSuffix(key) {
     case 'scene_extraction':
       return '\n5. **风格要求**：[当前剧集风格]\n   - **图片比例**：[当前比例]\n\n【输出格式】\n**重要：必须只返回纯JSON数组，不要包含任何markdown代码块。直接以 [ 开头，以 ] 结尾。**\n每个元素包含：location（地点）, time（时间）, prompt（完整的中文图片生成提示词，纯背景，明确说明无人物）。';
     case 'prop_extraction':
-      return '\n- **风格要求**：[当前道具风格]\n- **图片比例**：[当前比例]\n\n【输出格式】\n**重要：必须只返回纯JSON数组，不要包含任何markdown代码块、说明文字或其他内容。直接以 [ 开头，以 ] 结尾。**\n每个对象包含：\n- name: 道具名称\n- type: 类型 (如：武器/关键证物/日常用品/特殊装置)\n- description: 在剧中的作用和中文外观描述\n- image_prompt: 英文图片生成提示词 (Focus on the object, isolated, detailed, cinematic lighting, high quality)';
+      return '\n- **风格要求**：[当前道具风格]\n- **图片比例**：[当前比例]\n\n【输出格式】\n**重要：必须只返回纯JSON数组，不要包含任何markdown代码块、说明文字或其他内容。直接以 [ 开头，以 ] 结尾。**\n每个对象包含：\n- name: 道具名称\n- type: 类型 (如：武器/关键证物/日常用品/特殊装置)\n- description: 在剧中的作用和中文外观描述（人名归属可写此处，勿写入 image_prompt）\n- image_prompt: 英文单道具主图（纯色底、仅主体；无剧本人名地名等；简练、不扩写）';
     case 'storyboard_user_suffix':
       return '\n\n【输出格式】请以JSON格式输出，包含 "storyboards" 数组。每个镜头包含：shot_number, title, shot_type, angle, time, location, scene_id, movement, action, dialogue, result, atmosphere, emotion, duration, bgm_prompt, sound_effect, characters, is_primary。**必须只返回纯JSON，不要markdown。**';
     case 'first_frame_prompt':
@@ -1048,10 +1093,10 @@ CONTEXT_NEXT: <next shot summary — ignore for image, relevant only for mood>`;
 }
 
 /**
- * 可灵 kling-video-o1 全能模式：模板 + 仅用 @图片1/@图片2…（与 API 参考图顺序一致，不用 @姓名）
+ * 全能模式（可灵 Omni-Video、火山即梦 Seedance 2.0 多图参考等）：模板 + 仅用 @图片1/@图片2…（与参考图顺序一致，不用 @姓名）
  */
 function getUniversalOmniSegmentPrompt() {
-  return `You write the main prompt for Kling Omni-Video (kling-video-o1) "片段描述" in Chinese.
+  return `You write the main prompt for multi-reference video (e.g. Kling Omni-Video kling-video-o1, or Volcengine Ark Seedance 2.0 omnivideo) "片段描述" in Chinese.
 
 The USER message includes IMAGE_SLOT_MAP, LINE3_REQUIRED, OUTPUT_CONTRACT, STYLE_HINT, DURATION_SECONDS, and storyboard fields.
 
@@ -1066,7 +1111,7 @@ Line 2 — exactly:
 Line 3 — copy LINE3_REQUIRED from the USER message verbatim (when 场景, it states environment reference for @图片1 and forbids mimicking collage/grid layout).
 
 Line 4 — exactly this pattern (use DURATION_SECONDS from USER for N — must match exactly, e.g. 分镜1： 8秒:):
-分镜1： N秒: <one continuous paragraph in Chinese>
+分镜1： N秒: <one continuous paragraph in Chinese — this is VIDEO for N seconds, not a still image caption: write time-ordered action (who moves where, who reacts), camera **motion chain** (at least two beats, e.g. 定镜→缓推轨, or 横移从遮挡物后滑出), and environment reveal; match SoulLens dynamism for long N (10–15).>
 
 Reference images — CRITICAL:
 - Use ONLY the tokens listed in IMAGE_SLOT_MAP: @图片1, @图片2, @图片3, … (Arabic digits, no full-width numerals).
@@ -1078,7 +1123,7 @@ Reference images — CRITICAL:
 - Do NOT use @场景 as image token.
 - Do NOT add markdown, bullets, or English labels.
 
-Inside line 4, weave 景别、机位、运镜、光线、情绪、动作细节. If DIALOGUE / VIDEO_PROMPT imply spoken lines, use 「」 naturally. If the shot must be silent, end with something like: 画面中所有角色全程不说话。
+Inside line 4, write **motion picture** prose: time flows across N seconds — character blocking changes (走近/转身/冲出/蹲下), reactions, and camera that **moves** (定镜、缓推轨、横移、从门柱或前景遮挡后滑出 reveal、跟拍、手持呼吸感). weave 景别、机位、运镜链、光线、情绪、动作；前中后景层次；色温与明暗反差；音效分层。禁止写成只对一帧静照的描述。若 N≥8 禁止全段只有「特写固定不动」。若有对白用「」；无声则写明全程不说话。
 
 Scene reference layout — CRITICAL (when USER includes SCENE_REFERENCE_LAYOUT or when @图片1 is 场景):
 - The scene reference image may be a **multi-panel composite** (四宫格/九宫格/多视角拼图/带分割线的场景预览). It is ONLY for understanding room layout, furniture, palette, lighting, and atmosphere. **Do NOT** make the output video mimic that composite: **forbidden** are split-screen, 2x2 or 3x3 grid, collage, side-by-side panels, picture-in-picture copying the reference layout, visible dividing lines, or “same image repeated in quadrants”.
@@ -1164,23 +1209,29 @@ function getPropPolishPrompt(cfg) {
   return `# 道具图片提示词生成器
 
 ## 你的身份
-你是专业的影视道具设计师，负责将道具描述转换为 AI 绘图的精准提示词。
+你是专业的影视道具美术与产品摄影指导，负责把道具描述写成**资产主图级**英文生图提示词（供剧组道具库 / AI 参考单图使用）。
 
 ## 核心规则
 
-### 提取与聚焦
-- **主体突出**：画面中心必须是道具本体，占据画面 60% 以上
-- **背景简洁**：纯色背景或渐变背景，禁止复杂环境背景
-- **细节精准**：材质质感、光泽、颜色要具体可描绘（如"哑光黑色金属表面，轻微划痕，油迹反光"）
-- **禁止添加**：人物、角色手持、场景环境、文字标注${styleZh ? '\n- **画风风格**：' + styleZh : ''}
+### 剧本信息隔离（强制）
+- 用户输入可能含剧本人名、地名、台词或剧情——**一律不得**写入最终英文 prompt（含音译名、拼音、引号对话）。若输入出现姓名，用 **generic role-neutral** 措辞改写或删除（例如仅保留 "small engraved lettering" 而**不写**具体名字）。
+- **零扩展**：只保留输入里**已写明或可合理从材质/形制直接读出**的视觉信息；**禁止**新增配饰、品牌/朝代故事、情绪叙事、电影化形容词堆砌、与物体无关的联想词。
 
-### 视角与构图
-- 使用 3/4 俯视角或正面视角，展示道具最具辨识度的面
-- 光线为柔和的工作室灯光（Studio lighting），避免强烈阴影遮挡细节
+### 主体与背景（强制）
+- **唯一主体**：画面中只能有这一件道具；居中或略偏三分线，占画面约 55%–75%，轮廓完整、无裁切关键结构。
+- **纯色无缝背景**：**单一哑光纯色**（seamless cyclorama / infinite backdrop），**禁止渐变、纹理墙纸、地面、台面、地平线、室内外景**；背景色需与道具色相区分以便抠像（例如道具偏深则用中性浅灰，偏浅则用中性深灰），**不得**写具体道具以外的任何环境词。
+- **零杂物**：禁止桌面散落物、书本、植物、器皿、布料堆叠、包装箱、工具、第二件道具、灰尘烟雾粒子、景深虚化里的「远处物体」等；除非描述明确该物为道具不可分割的一部分，否则一律不出现。
+
+### 质感与光
+- 材质、镀层、磨损、刻字（若有）、比例暗示要写具体（可量化词汇：brushed / matte / polished / micro-scratches）；**句子宁少勿多**。
+- **光**：柔和均匀的棚拍光（large softbox, even illumination），仅允许**极轻**的接触阴影以锚定体量，**禁止**戏剧轮廓光、强逆光、体积光、镜头眩光、色散、电影级低 key 高反差。
+
+### 硬性排除
+- 禁止：人物、手、身体任何部分、文字水印、商标（除非剧情指定且为道具本体一部分）、叙事性场景词、**任何专有名词式剧本标签**。${styleZh ? '\n- **画风风格**（仅作用于渲染质感，不改变「单道具 + 纯色底」版式）：' + styleZh : ''}
 
 ### 输出格式
-直接输出一段英文 prompt（约 60-120 词），不要任何解释、标题或列表。
-格式：[道具名称及类型], [材质与质感描述], [颜色与光泽], [尺寸感与细节], [构图], [背景], [光线], [画风]${styleEn ? ', ' + styleEn + ' style' : ''}`;
+直接输出**一段**英文 prompt（约 **45–90 词**，能更短则更短），不要解释、标题、列表或引号。
+**必须**在同一段内显式包含短语或等价表达：**single prop only**, **seamless solid-color studio backdrop**, **no extra objects**, **no people**, **no hands**, **no environment**；末尾再接画风：${styleEn ? styleEn + ' render style' : 'photorealistic product hero shot'}`;
 }
 
 module.exports = {
@@ -1194,6 +1245,7 @@ module.exports = {
   getLastFramePrompt,
   getSceneExtractionPrompt,
   getStoryboardSystemPrompt,
+  getStoryboardUniversalOmniModeSuffix,
   getStoryboardUserPromptSuffix,
   getStoryboardNarrationExtraInstructions,
   getStoryExpansionSystemPrompt,

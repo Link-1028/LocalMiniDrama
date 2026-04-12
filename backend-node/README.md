@@ -10,7 +10,7 @@
 
 > 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.2.3`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.2.6`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
 
 ---
 
@@ -318,7 +318,7 @@ style:
 2. `videoService.js` 异步处理：调用视频 API → 轮询任务状态 → 下载到本地
 3. 前端轮询 `GET /videos/:id` 直到 status=completed
 
-**视频参数（Volcengine 专用）：**
+**视频参数（Volcengine 经典 Seedance 单链路，示例）：**
 ```json
 {
   "model": "doubao-seedance-1-0-pro-250528",
@@ -331,6 +331,14 @@ style:
   "watermark": false
 }
 ```
+
+**火山方舟 Seedance 2.0 · 全能 / 多参考图（`volcengine_omni`）：**
+
+- 在前端「AI 配置 → 视频生成」选择接口规范 **`volcengine_omni`**，厂商仍为火山引擎；**Base URL** 一般为 `https://ark.cn-beijing.volces.com/api/v3`；**模型**填控制台接入点（如 `doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`）。
+- 与制作页分镜 **「全能模式」** 配合：首条为文本提示，其余参考图为场景/角色/道具/分镜主图等，每张 **`role: reference_image`**；方舟侧最多取 **9** 张。
+- **Seedance 2.x** 请求时长会在后端吸附到 **4–15 秒**；默认走 `POST /v1/videos/generations`（可用配置 **Endpoint** 覆盖）。实现见 `videoClient.js`（`volcengine_omni` 分支）。
+
+**可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
 ### 提示词国际化
 
@@ -345,6 +353,14 @@ style:
 1. 在 `imageClient.js` 或 `videoClient.js` 中添加新的 `provider` 分支
 2. 实现对应的 API 调用逻辑
 3. 在前端「AI 配置」页面新增服务商选项（`AIConfigContent.vue`）
+
+### Jimeng AI API（自建即梦 OpenAI 兼容服务）
+
+若使用「视频 → 厂商 **Jimeng AI API（自建即梦免费 API）**」：
+
+1. 自行克隆并启动第三方即梦逆向/兼容服务项目（如 `jimeng-free-api-all`），按对方 README 安装依赖与 Chromium，默认监听端口以对方文档为准（常见 `8000`）。
+2. 在本系统 AI 配置中填写 **Base URL**（如 `http://127.0.0.1:8000`）、**API Key** 填即梦 **Session**（多个用英文逗号分隔）。
+3. 后端会请求对方 `POST /v1/videos/generations`（可用配置项 **Endpoint** 覆盖路径），Seedance 多图场景需分镜带参考图；返回为同步 `data[0].url`，无需轮询。
 
 ### 添加新的数据库字段
 

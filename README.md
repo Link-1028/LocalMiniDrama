@@ -6,7 +6,7 @@
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.2.3-blue?style=flat-square)](../../releases)
+[![version](https://img.shields.io/badge/version-1.2.6-blue?style=flat-square)](../../releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -75,7 +75,7 @@
   </tr>
 </table>
 
-> 💡 **即梦 1.0 仅为演示版本**，本工具同时支持火山引擎豆包 Seedance、通义万相、Vidu、可灵 Kling 等多家视频模型，更高版本模型效果更佳。
+> 💡 **即梦 1.0 仅为演示版本**，本工具同时支持火山引擎豆包 Seedance（含 **Seedance 2.0** 方舟多图参考）、通义万相、Vidu、可灵 Kling（含 Omni）等多家视频模型，更高版本模型效果更佳。
 
 ---
 
@@ -110,6 +110,8 @@
 
 ### ✏️ 分镜精细编辑
 
+- **经典分镜 / 全能模式**：分镜视图可一键切换。**经典模式**中间为分镜参考图；**全能模式**中间为**片段描述**（独立存库，与参考图并存），适合 **`volcengine_omni`（火山 Seedance 2.0 多图）** 或 **`kling_omni`（可灵 Omni）** 等全能生视频链路；经典字段保留，可随时切回
+- **全能片段与 `@图片N`**：片段描述中可用 **`@图片1`、`@图片2`…** 对应参考图顺序（一般为场景 → 角色 → 物品 → 分镜主图）；支持「根据分镜生成提示词」自动生成含运镜、机位与 `@图片` 约束的文案；有内容时生视频**仅提交该段**，不拼接下方「视频提示词」
 - **图片提示词**：查看并编辑每个分镜的图片生成提示词，修改后重新生成
 - **视频提示词**：全文编辑 + 字段展开编辑（场景/时长/动作/氛围/运镜/景别），自动重新拼装
 - **图片管理**：AI 生成、手动上传、拖拽上传，随时替换
@@ -237,7 +239,11 @@ LocalMiniDrama/
 
 查看完整更新记录 → **[CHANGELOG](docs/changelog.md)**
 
-**最新版 v1.2.3 亮点：**
+**最新版 v1.2.6 亮点：**
+- 🆕 **Seedance 2.0 接入**：火山方舟多参考图视频链路；AI 配置视频中选接口规范 **`volcengine_omni`**，模型如 `doubao-seedance-2-0-260128` 等（以控制台为准）；后端对 Seedance **2.x** 时长 **4–15 秒**吸附、参考图 **`reference_image`** 组装
+- 🆕 **分镜全能模式**：制作页分镜切换「全能模式」，中间编辑**片段描述**（`universal_segment_text`）；与可灵 **`kling_omni`** 或火山 **`volcengine_omni`** 配合，多素材参考图一键提交；**`@图片1`…** 编排与「根据分镜生成提示词」工作流
+
+**v1.2.3 亮点：**
 - 🆕 **分镜解说旁白（narration）**：分镜生成可选「生成分镜时生成解说旁白」，AI 为每镜输出独立 `narration` 字段（与角色对白 `dialogue` 分离），便于后期 TTS 与成片旁轨
 - 🆕 **导出解说 SRT**：按分镜顺序与单镜时长累计时间轴，一键导出字幕文件；支持「解说配音」走现有 TTS 接口
 - 🔧 **首镜解说为空修复**：流式增量先入库的分镜在任务结束后会用**最终完整 JSON** 再 `UPDATE` 合并，避免第 1/2 镜解说因早写库而永久缺失
@@ -306,7 +312,7 @@ LocalMiniDrama/
 
 | 计划 | 说明 |
 |------|------|
-| ✅ **即梦 2.0 模型接入** | 已支持豆包 Seedream 4.5 图片生成 |
+| ✅ **即梦 2.0 / Seedance 2.0** | 已支持豆包 Seedream 4.5 图片；**v1.2.5** 起支持方舟 **Seedance 2.0** 视频多图参考 + 分镜**全能模式** |
 | ✅ **NanoBanana 图片模型接入** | 已支持，含官方 API 与代理模式（v1.1.8） |
 | 📎 **分镜参考图自由上传** | 分镜编辑支持自由上传任意图片作为参考图 |
 | 🎨 **参考图自由选择** | 生成分镜图时，可手动指定使用哪些角色/场景图片作为参考 |

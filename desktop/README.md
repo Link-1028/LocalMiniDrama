@@ -1,16 +1,17 @@
 # LocalMiniDrama 桌面客户端
 
-基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`，打包为 Windows exe / macOS dmg 后可直接运行。当前版本：**v1.2.3**
+基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`，打包为 Windows exe / macOS dmg 后可直接运行。当前版本：**v1.2.6**
 
 ---
 
-## 主要功能（v1.2.3）
+## 主要功能（v1.2.6）
 
 | 模块 | 功能 |
 |------|------|
 | 首页（项目列表） | 创建/打开剧集项目；素材库（角色/场景/道具全局复用）；AI 配置；明暗主题切换 |
 | 剧集管理页 | 管理剧集信息（标题/风格/比例）；分集列表（新增/删除/预览剧本）；本剧资源库（角色/场景/道具按剧过滤）；从素材库导入资源 |
 | 制作页（分集） | 剧本编辑、角色/场景/道具 AI 生成与图片管理；分镜脚本生成与逐镜编辑（图片提示词、视频提示词） |
+| 分镜全能模式 | 分镜可在**经典**与**全能模式**间切换；全能模式中间为**片段描述**（`@图片1`… 多图参考），配合 AI 配置中 **`volcengine_omni`（Seedance 2.0）** 或 **`kling_omni`（可灵 Omni）**；支持「根据分镜生成提示词」 |
 | 分镜图生成 | **相机角度视角**：仰视/俯视/侧面/背面角度自动影响背景透视；**四宫格序列图**：一键生成 2×2 四帧序列参考图，自动拆分面板，随时切换主分镜图 |
 | 一键流水线 | **一键生成视频**：全流程自动执行；**补全并生成**：仅生成缺失内容，自动跳过已有 |
 | 图片/视频生成 | 支持 DashScope、Volcengine、Gemini 等多种 API；生成失败自动重试 3 次；错误信息持久显示 |
@@ -95,7 +96,7 @@ npm run dist:cn
 ### 2. 从命令行运行（实时日志）
 
 ```powershell
-& "D:\path\to\release\LocalMiniDrama 1.1.4.exe"
+& "D:\path\to\release\LocalMiniDrama 1.2.6.exe"
 ```
 
 日志会直接打印在终端，操作软件时可实时看到所有输出。
@@ -104,7 +105,7 @@ npm run dist:cn
 
 ```powershell
 $env:LOCALMINIDRAMA_DEVTOOLS=1
-& "D:\path\to\release\LocalMiniDrama 1.1.4.exe"
+& "D:\path\to\release\LocalMiniDrama 1.2.6.exe"
 ```
 
 在 Network 面板查看各 API 请求（如 `POST /api/v1/generation/characters`）是否正常发出和返回。

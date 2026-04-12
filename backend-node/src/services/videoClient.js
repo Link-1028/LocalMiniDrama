@@ -22,7 +22,26 @@ function inferVideoProtocol(provider) {
   if (p === 'vidu') return 'vidu';
   if (p === 'ffir') return 'kling_omni';
   if (p === 'kling' || p === 'klingai') return 'kling';
+  if (p === 'jimeng_ai_api') return 'jimeng_ai_api';
+  if (p === 'xai' || p === 'grok') return 'xai';
   return 'openai';
+}
+
+/**
+ * 显式 api_protocol 优先；未配置时推断。
+ * Grok / xAI 官方为 prompt + aspect_ratio + GET /v1/videos/{request_id}，与中转站用的 ratio + content 不同。
+ */
+function resolveVideoProtocol(config, modelHint) {
+  const provider = (config.provider || '').toLowerCase();
+  const explicit = String(config.api_protocol || '').trim();
+  let protocol = explicit.toLowerCase() || inferVideoProtocol(provider);
+  const baseLower = String(config.base_url || '').toLowerCase();
+  const modelLower = String(modelHint || '').toLowerCase();
+  if (!explicit && protocol === 'openai') {
+    if (/api\.x\.ai(\/|$)/.test(baseLower)) protocol = 'xai';
+    else if (/grok-imagine|grok.*video/.test(modelLower)) protocol = 'xai';
+  }
+  return protocol;
 }
 
 /** 可灵 Omni / 多图生视频（飞儿 ffir.cn 等中转）：可用环境变量临时覆盖配置 */
@@ -314,6 +333,191 @@ async function resolveImageInputForOmniAsync(rawUrl, files_base_url, storage_loc
 }
 
 /**
+ * 火山方舟 Seedance 全能/多图参考：参考图解析（公网 URL / 图床 / 本地 base64），与可灵 Omni 逻辑一致
+ */
+async function resolveVolcOmniImageAsync(rawUrl, files_base_url, storage_local_path, log, video_gen_id, index) {
+  const raw = (rawUrl || '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('data:')) return raw;
+
+  const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
+  if (isPublicHttp) return raw;
+
+  if (storage_local_path) {
+    const tag = `volc_omni_vg${video_gen_id}_${index}`;
+    const proxyUrl = await uploadLocalImageToProxy(storage_local_path, raw, log, tag);
+    if (proxyUrl) {
+      log.info('[VolcOmni] 已上传图床', { video_gen_id, index, url_head: proxyUrl.slice(0, 64) });
+      return proxyUrl;
+    }
+    log.warn('[VolcOmni] 图床上传未返回 URL，尝试 base64', { video_gen_id, index });
+  }
+
+  return resolveImageInputForOmniLocalBase64(raw, files_base_url, storage_local_path, log, video_gen_id);
+}
+
+/** Seedance 2.x：时长吸附到 4–15 秒；旧版 Seedance 仍用 5/10 */
+function normalizeVolcOmniDuration(modelName, durationNum) {
+  const m = String(modelName || '').toLowerCase();
+  const isV2 = /seedance[-_]?2|seedance2|2[-_]0[-_]/.test(m);
+  const d = Number(durationNum);
+  const safe = Number.isFinite(d) && d > 0 ? d : 5;
+  if (isV2) {
+    const allowed = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let best = 5;
+    let bestDiff = 999;
+    for (const a of allowed) {
+      const diff = Math.abs(a - safe);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = a;
+      }
+    }
+    return best;
+  }
+  return safe <= 7 ? 5 : 10;
+}
+
+/**
+ * 火山引擎方舟 — Seedance 2.0 等「全能/多参考图」视频
+ * 与标准 volcengine 共用：POST {base}/contents/generations/tasks，GET {base}/contents/generations/tasks/{id}
+ * content：首条 text；全能模式每张均为参考图（场景/角色/道具…），每张必须带 role：一律 reference_image
+ */
+async function callVolcengineOmniVideoApi(config, log, opts) {
+  const {
+    prompt,
+    model: preferredModel,
+    duration,
+    aspect_ratio,
+    resolution,
+    seed,
+    camera_fixed,
+    watermark,
+    image_url,
+    reference_urls,
+    files_base_url,
+    storage_local_path,
+    video_gen_id,
+  } = opts;
+
+  const url = buildVideoUrl(config, { defaultEndpoint: '/v1/videos/generations' });
+  const model = getModelFromConfig(config, preferredModel);
+  const finalModel = normalizeVolcModel(model);
+  const ratio = aspect_ratio || '16:9';
+  const effectiveDuration = normalizeVolcOmniDuration(finalModel, duration);
+
+  const refList = Array.isArray(reference_urls) ? reference_urls.filter(Boolean) : [];
+  const primary = (image_url || '').trim();
+  const orderedUrls = [...(primary ? [primary] : []), ...refList.filter((u) => u !== primary)];
+  const maxRef = 9;
+  const urls = orderedUrls.slice(0, maxRef);
+
+  const body = {
+    model: finalModel,
+    content: [{ type: 'text', text: (prompt || '').trim() }],
+    ratio,
+    duration: effectiveDuration,
+    watermark: watermark != null ? Boolean(watermark) : false,
+  };
+  if (resolution) body.resolution = resolution;
+  if (seed != null) body.seed = Number(seed);
+  if (camera_fixed != null) body.camera_fixed = Boolean(camera_fixed);
+
+  if (urls.length) {
+    for (let i = 0; i < urls.length; i++) {
+      let u = await resolveVolcOmniImageAsync(
+        urls[i],
+        files_base_url,
+        storage_local_path,
+        log,
+        video_gen_id,
+        i
+      );
+      if (!u) continue;
+      if (/localhost|127\.0\.0\.1/i.test(u) && storage_local_path && (files_base_url || '').match(/localhost|127\.0\.0\.1/i)) {
+        const baseUrl = (files_base_url || '').replace(/\/$/, '');
+        const afterStatic = u.split('/static/')[1] || (baseUrl ? u.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
+        const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+        if (relPath) {
+          const filePath = path.join(storage_local_path, relPath);
+          try {
+            if (fs.existsSync(filePath)) {
+              const buf = fs.readFileSync(filePath);
+              const ext = path.extname(filePath).toLowerCase();
+              const mime =
+                { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp' }[
+                  ext
+                ] || 'image/png';
+              u = 'data:' + mime + ';base64,' + buf.toString('base64');
+            }
+          } catch (_) {}
+        }
+      }
+      const part = {
+        type: 'image_url',
+        image_url: { url: u },
+        role: 'reference_image',
+      };
+      body.content.push(part);
+    }
+    if (body.content.length > 1) body.task_type = 'i2v';
+  }
+
+  log.info('[VolcOmni] 创建任务', {
+    url,
+    model: finalModel,
+    ratio,
+    duration: effectiveDuration,
+    image_count: urls.length,
+    video_gen_id,
+    prompt_head: ((prompt || '').trim()).slice(0, 120),
+  });
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + (config.api_key || ''),
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await res.text();
+  log.info('[VolcOmni] 创建响应', { video_gen_id, status: res.status, raw: raw.slice(0, 1000) });
+
+  if (!res.ok) {
+    let errMsg = '火山 Seedance 全能创建失败: ' + res.status;
+    try {
+      const errJson = JSON.parse(raw);
+      const msg = errJson.error?.message || errJson.message || errJson.error;
+      if (msg) errMsg += ' - ' + String(msg).slice(0, 300);
+    } catch (_) {
+      if (raw) errMsg += ' - ' + raw.slice(0, 200);
+    }
+    return { error: errMsg };
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return { error: '火山 Seedance 全能响应非 JSON: ' + raw.slice(0, 200) };
+  }
+
+  const taskId = data.id || data.task_id || (data.data && data.data.id);
+  const status = data.status || (data.data && data.data.status);
+  const videoUrl = pickProxyVideoUrl(data);
+  if (videoUrl) {
+    log.info('[VolcOmni] 直接返回 video_url', { video_gen_id });
+    return { video_url: videoUrl };
+  }
+  if (taskId) {
+    log.info('[VolcOmni] 返回 task_id', { video_gen_id, task_id: taskId, status });
+    return { task_id: taskId, status: status || 'processing' };
+  }
+  return { error: '火山 Seedance 全能未返回 task_id 或 video_url: ' + JSON.stringify(data).slice(0, 300) };
+}
+
+/**
  * 可灵 Omni-Video
  * - 官方（api.klingai.com / api-beijing.klingai.com）：POST {base}/v1/videos/omni-video，轮询 GET {base}/v1/videos/omni-video/{taskId}
  * - ffir 等中转：POST {base}/kling/v1/videos/omni-video，查询 GET {base}/kling/v1/images/omni-image/{taskId}
@@ -512,19 +716,24 @@ function getVolcVideoBase(config) {
   return base || 'https://ark.cn-beijing.volces.com/api/v3';
 }
 
-function buildVideoUrl(config) {
+/**
+ * 非官方火山厂商（中转、自托管等）走 OpenAI/即梦类路径；默认 /video/generations 为旧版中转。
+ * volcengine_omni 传入 defaultEndpoint: '/v1/videos/generations' 以对齐方舟文档与 302.ai / jimeng-free-api。
+ */
+function buildVideoUrl(config, options = {}) {
   const p = (config.provider || '').toLowerCase();
   const isVolc = p === 'volces' || p === 'volcengine' || p === 'volc';
   if (isVolc) return getVolcVideoBase(config) + VOLC_VIDEO_CREATE_PATH;
   const base = (config.base_url || '').replace(/\/$/, '');
-  let ep = config.endpoint || '/video/generations';
+  const fallbackEp = options.defaultEndpoint != null ? options.defaultEndpoint : '/video/generations';
+  let ep = config.endpoint || fallbackEp;
   if (!ep.startsWith('/')) ep = '/' + ep;
   return base + ep;
 }
 
 function buildQueryUrl(config, taskId) {
   const p = (config.provider || '').toLowerCase();
-  const proto = (config.api_protocol || '').toLowerCase();
+  const proto = resolveVideoProtocol(config);
   const isDashScope = proto === 'dashscope' || p === 'dashscope';
   const isVolc = p === 'volces' || p === 'volcengine' || p === 'volc';
   const isSora = proto === 'sora';
@@ -532,8 +741,10 @@ function buildQueryUrl(config, taskId) {
   const base = (config.base_url || '').replace(/\/$/, '');
   let defaultEp;
   if (isSora) defaultEp = '/v1/videos/{taskId}';
+  else if (proto === 'xai') defaultEp = '/v1/videos/{taskId}';
   else if (proto === 'veo3') defaultEp = '/v1/video/query?id={taskId}';
   else if (isDashScope) defaultEp = '/api/v1/tasks/{taskId}';
+  else if (proto === 'volcengine_omni') defaultEp = '/v1/videos/generations/async/{taskId}';
   else defaultEp = '/video/task/{taskId}';
   let ep = config.query_endpoint || defaultEp;
   ep = String(ep).replace(/\{taskId\}/gi, encodeURIComponent(taskId)).replace(/\{task_id\}/gi, encodeURIComponent(taskId)).replace(/\{id\}/gi, encodeURIComponent(taskId));
@@ -550,6 +761,10 @@ const VOLC_MODEL_ALIASES = {
   'doubao-seedance-1-0-lite':      'doubao-seedance-1-0-lite-250428',
   'doubao-seedance-1.5-pro':       'doubao-seedance-1-5-pro-251215',
   'doubao-seedance-1-5-pro':       'doubao-seedance-1-5-pro-251215',
+  'doubao-seedance-2.0-pro':       'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-pro':       'doubao-seedance-2-0-260128',
+  'doubao-seedance-2.0-fast':      'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-fast':      'doubao-seedance-2-0-fast-260128',
 };
 
 function normalizeVolcModel(name) {
@@ -575,6 +790,10 @@ function videoUrlFromRecord(rec) {
  */
 function pickProxyVideoUrl(data) {
   if (!data || typeof data !== 'object') return null;
+  if (data.video && typeof data.video === 'object') {
+    const vu = data.video.url || data.video.video_url;
+    if (vu && typeof vu === 'string') return vu;
+  }
   let u = videoUrlFromRecord(data);
   if (u) return u;
   const d = data.data;
@@ -1482,6 +1701,356 @@ async function callSoraVideoApi(config, log, opts) {
   return { error: 'Sora ??? task_id ? video_url???: ' + JSON.stringify(data).slice(0, 300) };
 }
 
+function isJimengFreeApiSeedanceModel(model) {
+  const m = String(model || '').toLowerCase();
+  return m.includes('seedance');
+}
+
+/**
+ * 参考图 URL → Buffer（multipart），供用户自托管的 Jimeng 免费 API 使用
+ */
+async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local_path, log, video_gen_id, index) {
+  const raw = (rawUrl || '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('data:')) {
+    const m = /^data:([^;]+);base64,(.+)$/i.exec(raw.replace(/\s/g, ''));
+    if (m) {
+      const mime = (m[1] || '').toLowerCase();
+      const buf = Buffer.from(m[2], 'base64');
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      return { buffer: buf, filename: 'ref_' + index + '.' + ext };
+    }
+    return null;
+  }
+  if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
+    const baseUrl = (files_base_url || '').replace(/\/$/, '');
+    const afterStatic = raw.split('/static/')[1] || (baseUrl ? raw.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
+    const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+    if (relPath) {
+      const filePath = path.join(storage_local_path, relPath);
+      try {
+        if (fs.existsSync(filePath)) {
+          const buf = fs.readFileSync(filePath);
+          return { buffer: buf, filename: path.basename(filePath) || 'ref_' + index + '.jpg' };
+        }
+      } catch (e) {
+        log.warn('[JimengAI] 读本地参考图失败', { error: e.message, video_gen_id, index });
+      }
+    }
+  }
+  if (raw.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(raw)) {
+    try {
+      if (fs.existsSync(raw)) {
+        const buf = fs.readFileSync(raw);
+        return { buffer: buf, filename: path.basename(raw) || 'ref_' + index + '.jpg' };
+      }
+    } catch (_) {}
+  }
+  const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
+  if (isPublicHttp) {
+    const res = await fetch(raw);
+    if (!res.ok) throw new Error('拉取参考图失败 HTTP ' + res.status);
+    const ab = await res.arrayBuffer();
+    return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
+  }
+  if (storage_local_path) {
+    const proxyUrl = await uploadLocalImageToProxy(storage_local_path, raw, log, 'jimeng_ai_vg' + video_gen_id + '_' + index);
+    if (proxyUrl) {
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error('图床参考图拉取失败 HTTP ' + res.status);
+      const ab = await res.arrayBuffer();
+      return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
+    }
+  }
+  return null;
+}
+
+/**
+ * 用户自托管 jimeng-free-api-all：POST /v1/videos/generations（multipart 或 JSON）
+ * @returns {Promise<{ video_url?: string, error?: string }>}
+ */
+async function callJimengAiApiVideo(config, log, opts) {
+  const base = (config.base_url || '').toString().replace(/\/$/, '').trim();
+  if (!base) {
+    return { error: 'Jimeng AI API 未配置 Base URL（请填写自建服务地址，如 http://127.0.0.1:8000）' };
+  }
+  let apiKey = (config.api_key || '').trim();
+  if (/^bearer\s+/i.test(apiKey)) apiKey = apiKey.replace(/^bearer\s+/i, '').trim();
+  if (!apiKey) {
+    return { error: 'Jimeng AI API 未配置 Session（填入 API Key 字段，多个用英文逗号分隔）' };
+  }
+
+  const model = getModelFromConfig(config, opts.model);
+  const seedance = isJimengFreeApiSeedanceModel(model);
+  let ratio = (opts.aspect_ratio || '16:9').toString().trim().replace(/\uFF1A/g, ':');
+  let dur = opts.duration != null ? Number(opts.duration) : seedance ? 4 : 5;
+  if (!Number.isFinite(dur) || dur < 1) dur = seedance ? 4 : 5;
+  if (seedance) {
+    if (dur === 5) dur = 4;
+    dur = Math.min(15, Math.max(4, Math.round(dur)));
+    if (ratio === '1:1') ratio = '4:3';
+  } else {
+    dur = dur <= 7 ? 5 : 10;
+  }
+
+  const resolution = (opts.resolution || '720p').toString().trim() || '720p';
+  const pathSuffix = (config.endpoint || '/v1/videos/generations').toString().trim();
+  const apiPath = pathSuffix.startsWith('/') ? pathSuffix : '/' + pathSuffix;
+  const url = base + apiPath;
+  const video_gen_id = opts.video_gen_id;
+
+  const urlList = [];
+  const refs = Array.isArray(opts.reference_urls) ? opts.reference_urls.filter(Boolean) : [];
+  for (const u of refs) urlList.push(String(u).trim());
+  if (opts.image_url && String(opts.image_url).trim()) urlList.push(String(opts.image_url).trim());
+  if (opts.first_frame_url && String(opts.first_frame_url).trim()) urlList.push(String(opts.first_frame_url).trim());
+  if (opts.last_frame_url && String(opts.last_frame_url).trim()) urlList.push(String(opts.last_frame_url).trim());
+  const seen = new Set();
+  const orderedUrls = [];
+  for (const u of urlList) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    orderedUrls.push(u);
+  }
+
+  const fileParts = [];
+  for (let i = 0; i < orderedUrls.length; i++) {
+    try {
+      const part = await resolveJimengApiImageBuffer(
+        orderedUrls[i],
+        opts.files_base_url,
+        opts.storage_local_path,
+        log,
+        video_gen_id,
+        i
+      );
+      if (part && part.buffer && part.buffer.length) fileParts.push(part);
+    } catch (e) {
+      log.warn('[JimengAI] 解析参考图失败', { video_gen_id, index: i, message: e.message });
+    }
+  }
+
+  if (seedance && fileParts.length === 0) {
+    return { error: 'Jimeng Seedance 需要至少一张参考图（请设置分镜参考图或 image_url）' };
+  }
+
+  const prompt = (opts.prompt || '').toString();
+  const headers = { Authorization: 'Bearer ' + apiKey };
+  let fetchOpts = { method: 'POST', headers };
+
+  const longWaitMs = 10 * 60 * 1000;
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    fetchOpts.signal = AbortSignal.timeout(longWaitMs);
+  }
+
+  if (fileParts.length > 0) {
+    const form = new FormData();
+    form.append('model', model);
+    form.append('prompt', prompt);
+    form.append('ratio', ratio);
+    form.append('duration', String(dur));
+    form.append('resolution', resolution);
+    for (const { buffer, filename } of fileParts) {
+      const blob = new Blob([buffer]);
+      form.append('files', blob, filename || 'image.jpg');
+    }
+    fetchOpts.body = form;
+    log.info('[JimengAI] multipart 提交', {
+      video_gen_id,
+      url,
+      model,
+      ratio,
+      duration: dur,
+      resolution,
+      file_count: fileParts.length,
+    });
+  } else {
+    fetchOpts.headers = { ...headers, 'Content-Type': 'application/json' };
+    fetchOpts.body = JSON.stringify({
+      model,
+      prompt,
+      ratio,
+      duration: dur,
+      resolution,
+    });
+    log.info('[JimengAI] JSON 提交（无参考图）', { video_gen_id, url, model, ratio, duration: dur, resolution });
+  }
+
+  let res;
+  try {
+    res = await fetch(url, fetchOpts);
+  } catch (e) {
+    const msg = e.name === 'AbortError' || e.name === 'TimeoutError' ? '请求超时（视频生成较慢，可稍后重试）' : e.message;
+    log.error('[JimengAI] 请求失败', { video_gen_id, message: e.message });
+    return { error: 'Jimeng AI API 请求失败: ' + msg };
+  }
+
+  const raw = await res.text();
+  log.info('[JimengAI] 响应', { video_gen_id, status: res.status, raw_head: raw.slice(0, 800) });
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (_) {
+    return { error: 'Jimeng AI API 非 JSON 响应 (' + res.status + '): ' + raw.slice(0, 300) };
+  }
+
+  if (!res.ok) {
+    const errMsg =
+      data?.error?.message ||
+      data?.error ||
+      data?.errmsg ||
+      data?.message ||
+      raw.slice(0, 400);
+    return { error: 'Jimeng AI API ' + res.status + ': ' + (typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)) };
+  }
+
+  const videoUrl = data?.data?.[0]?.url || data?.data?.[0]?.video_url;
+  if (videoUrl) {
+    log.info('[JimengAI] 得到视频地址', { video_gen_id, video_url_head: String(videoUrl).slice(0, 96) });
+    return { video_url: String(videoUrl) };
+  }
+
+  return { error: 'Jimeng AI API 未返回 data[0].url: ' + JSON.stringify(data).slice(0, 400) };
+}
+
+function resolveXaiVideoResolution(resolution) {
+  const s = String(resolution || '').toLowerCase();
+  if (s.includes('480')) return '480p';
+  if (s.includes('720')) return '720p';
+  return '720p';
+}
+
+function clampXaiDuration(d) {
+  const n = Math.round(Number(d));
+  if (!Number.isFinite(n) || n < 1) return 8;
+  return Math.min(15, Math.max(1, n));
+}
+
+/**
+ * xAI Grok Imagine 官方视频 API：POST /v1/videos/generations，画幅字段为 aspect_ratio（非 ratio）。
+ */
+async function callXaiVideoApi(config, log, opts) {
+  const {
+    prompt,
+    model,
+    duration,
+    aspect_ratio,
+    resolution,
+    image_url,
+    reference_urls,
+    files_base_url,
+    storage_local_path,
+    video_gen_id,
+  } = opts;
+
+  const base = (config.base_url || 'https://api.x.ai').replace(/\/$/, '');
+  let ep = config.endpoint || '/v1/videos/generations';
+  if (!ep.startsWith('/')) ep = '/' + ep;
+  const url = base + ep;
+
+  const ratio = normalizeAspectRatioForApi(aspect_ratio) || '16:9';
+  const dur = clampXaiDuration(duration != null ? duration : 8);
+  const reso = resolveXaiVideoResolution(resolution);
+
+  let imageUrlForApi = (image_url || '').trim();
+  const hasImage = !!imageUrlForApi;
+  if (hasImage && imageUrlForApi && /localhost|127\.0\.0\.1/i.test(imageUrlForApi) && storage_local_path) {
+    const baseUrl = (files_base_url || '').replace(/\/$/, '');
+    const afterStatic =
+      imageUrlForApi.split('/static/')[1] ||
+      (baseUrl ? imageUrlForApi.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
+    const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+    if (relPath) {
+      const filePath = path.join(storage_local_path, relPath);
+      try {
+        if (fs.existsSync(filePath)) {
+          const buf = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mime =
+            { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp' }[ext] ||
+            'image/jpeg';
+          imageUrlForApi = 'data:' + mime + ';base64,' + buf.toString('base64');
+          log.info('[xAI视频] 本地首帧 → data URL', { video_gen_id, size_kb: Math.round(buf.length / 1024) });
+        }
+      } catch (e) {
+        log.warn('[xAI视频] 读取本地首帧失败', { video_gen_id, error: e.message });
+      }
+    }
+  }
+
+  const body = {
+    model: model || 'grok-imagine-video',
+    prompt: prompt || '',
+    duration: dur,
+    aspect_ratio: ratio,
+    resolution: reso,
+  };
+
+  if (hasImage && imageUrlForApi) {
+    body.image = { url: imageUrlForApi };
+  } else if (Array.isArray(reference_urls) && reference_urls.length > 0) {
+    const refs = reference_urls
+      .map((u) => (u && String(u).trim() ? { url: String(u).trim() } : null))
+      .filter(Boolean);
+    if (refs.length) body.reference_images = refs;
+  }
+
+  log.info('[xAI视频] 提交', {
+    video_gen_id,
+    url,
+    model: body.model,
+    aspect_ratio: ratio,
+    duration: dur,
+    resolution: reso,
+    has_image: !!body.image,
+    ref_count: body.reference_images?.length || 0,
+  });
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + (config.api_key || ''),
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await res.text();
+  log.info('[xAI视频] 响应', { video_gen_id, status: res.status, head: raw.slice(0, 500) });
+
+  if (!res.ok) {
+    let errMsg = 'xAI 视频请求失败: ' + res.status;
+    try {
+      const errJson = JSON.parse(raw);
+      const msg = errJson.error?.message || errJson.message || errJson.error;
+      if (msg) errMsg += ' - ' + String(msg).slice(0, 220);
+    } catch (_) {
+      if (raw) errMsg += ' - ' + raw.slice(0, 200);
+    }
+    return { error: errMsg };
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return { error: 'xAI 响应非 JSON: ' + raw.slice(0, 200) };
+  }
+
+  const direct = pickProxyVideoUrl(data);
+  if (direct) {
+    log.info('[xAI视频] 同步返回地址', { video_gen_id });
+    return { video_url: direct };
+  }
+
+  const reqId = data.request_id || data.task_id || data.id;
+  if (reqId) {
+    log.info('[xAI视频] 异步任务', { video_gen_id, request_id: reqId });
+    return { task_id: String(reqId), status: 'submitted' };
+  }
+
+  return { error: 'xAI 未返回 request_id 或视频地址: ' + JSON.stringify(data).slice(0, 300) };
+}
+
 /**
  * ?????? API?ChatFire/?? ? ?????
  * @returns {Promise<{ task_id?: string, video_url?: string, error?: string }>}
@@ -1494,8 +2063,7 @@ async function callVideoApi(db, log, opts) {
   }
   const model = getModelFromConfig(config, preferredModel);
   const provider = (config.provider || '').toLowerCase();
-  // api_protocol 优先，空时按 provider 名称推断
-  const protocol = (config.api_protocol || '').toLowerCase() || inferVideoProtocol(provider);
+  const protocol = resolveVideoProtocol(config, preferredModel);
   log.info('[视频] 路由协议', {
     video_gen_id,
     provider,
@@ -1504,6 +2072,38 @@ async function callVideoApi(db, log, opts) {
     model,
     endpoint: config.endpoint || '(auto)',
   });
+
+  if (protocol === 'jimeng_ai_api') {
+    return callJimengAiApiVideo(config, log, {
+      prompt,
+      model: preferredModel,
+      duration: opts.duration,
+      aspect_ratio,
+      resolution: opts.resolution,
+      image_url: opts.image_url,
+      first_frame_url: opts.first_frame_url,
+      last_frame_url: opts.last_frame_url,
+      reference_urls: opts.reference_urls,
+      files_base_url: opts.files_base_url,
+      storage_local_path: opts.storage_local_path,
+      video_gen_id: opts.video_gen_id,
+    });
+  }
+
+  if (protocol === 'xai') {
+    return callXaiVideoApi(config, log, {
+      prompt,
+      model,
+      duration: opts.duration,
+      aspect_ratio,
+      resolution: opts.resolution,
+      image_url: opts.image_url,
+      reference_urls: opts.reference_urls,
+      files_base_url: opts.files_base_url,
+      storage_local_path: opts.storage_local_path,
+      video_gen_id: opts.video_gen_id,
+    });
+  }
 
   if (protocol === 'dashscope') {
     return callDashScopeVideoApi(config, log, {
@@ -1562,6 +2162,24 @@ async function callVideoApi(db, log, opts) {
       model,
       duration: opts.duration,
       aspect_ratio,
+      image_url: opts.image_url,
+      reference_urls: opts.reference_urls,
+      files_base_url: opts.files_base_url,
+      storage_local_path: opts.storage_local_path,
+      video_gen_id: opts.video_gen_id,
+    });
+  }
+
+  if (protocol === 'volcengine_omni') {
+    return callVolcengineOmniVideoApi(config, log, {
+      prompt,
+      model,
+      duration: opts.duration,
+      aspect_ratio,
+      resolution: opts.resolution,
+      seed: opts.seed,
+      camera_fixed: opts.camera_fixed,
+      watermark: opts.watermark,
       image_url: opts.image_url,
       reference_urls: opts.reference_urls,
       files_base_url: opts.files_base_url,
@@ -1649,7 +2267,7 @@ async function callVideoApi(db, log, opts) {
   if (volcTaskType) body.task_type = volcTaskType;
   if (hasImage && imageUrlForApi) {
     const imagePart = { type: 'image_url', image_url: { url: imageUrlForApi } };
-    if (volcTaskType !== 'i2v') imagePart.role = 'reference_image';
+    imagePart.role = volcTaskType === 'i2v' ? 'first_frame' : 'reference_image';
     body.content.push(imagePart);
   }
 
@@ -1710,7 +2328,7 @@ async function callVideoApi(db, log, opts) {
  */
 async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
   const provider = (config.provider || '').toLowerCase();
-  const protocol = (config.api_protocol || '').toLowerCase() || inferVideoProtocol(provider);
+  const protocol = resolveVideoProtocol(config);
   const isDashScope = protocol === 'dashscope';
   const isGemini = protocol === 'gemini';
   const isVidu = protocol === 'vidu';
@@ -1718,6 +2336,23 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
   const isKling = protocol === 'kling';
   const isKlingOmni = protocol === 'kling_omni' || (typeof taskId === 'string' && taskId.startsWith('omni:'));
   const isVeo3 = protocol === 'veo3';
+  /** 轮询日志里响应体最大字符数（即梦/方舟等 JSON 可能较长）；0 表示不截断（慎用） */
+  const pollLogBodyMax = (() => {
+    const v = String(process.env.VIDEO_POLL_LOG_MAX || '16384').trim();
+    if (v === '0' || v.toLowerCase() === 'full') return Infinity;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 512 * 1024) : 16384;
+  })();
+  const isVolcPoll =
+    provider === 'volces' ||
+    provider === 'volcengine' ||
+    provider === 'volc' ||
+    protocol === 'volcengine' ||
+    protocol === 'volcengine_omni';
+  if (protocol === 'jimeng_ai_api') {
+    log.warn('[poll] Jimeng AI API 不应进入轮询', { video_gen_id: videoGenId, task_id: taskId });
+    return { error: 'Jimeng AI API 为同步返回视频地址，不应进入轮询' };
+  }
   const queryUrl = () => buildQueryUrl(config, taskId);
   log.info('[poll] ????', { video_gen_id: videoGenId, task_id: taskId, protocol, poll_url: queryUrl() });
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1771,15 +2406,44 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         url = queryUrl();
         headers = { Authorization: 'Bearer ' + (config.api_key || '') };
       }
-      log.info('[poll] ??????', { video_gen_id: videoGenId, attempt, url });
+      const pollRound = attempt + 1;
+      log.info('[poll] 发起查询', { video_gen_id: videoGenId, round: pollRound, url });
       const res = await fetch(url, { method: 'GET', headers });
       const raw = await res.text();
-      log.info('[poll] ????', { video_gen_id: videoGenId, attempt, status: res.status, raw: raw.slice(0, 600) });
+      const bodyLogged =
+        pollLogBodyMax === Infinity
+          ? raw
+          : raw.length <= pollLogBodyMax
+            ? raw
+            : raw.slice(0, pollLogBodyMax) + `\n... [poll 响应已截断 前${pollLogBodyMax}字符 / 共${raw.length}字符，可设环境变量 VIDEO_POLL_LOG_MAX=0 输出全文]`;
+      log.info('[poll] 查询 HTTP 结果', {
+        video_gen_id: videoGenId,
+        round: pollRound,
+        http_status: res.status,
+        bytes: raw.length,
+        body: bodyLogged,
+      });
       if (!res.ok) {
-        log.warn('[poll] ???? (non-200)', { video_gen_id: videoGenId, attempt, status: res.status, raw: raw.slice(0, 300) });
+        log.warn('[poll] 查询非 2xx', {
+          video_gen_id: videoGenId,
+          round: pollRound,
+          http_status: res.status,
+          body: bodyLogged.slice(0, 4000),
+        });
         continue;
       }
-      const data = JSON.parse(raw);
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (parseErr) {
+        log.warn('[poll] 响应非 JSON', {
+          video_gen_id: videoGenId,
+          round: pollRound,
+          error: parseErr.message,
+          body_head: raw.slice(0, 800),
+        });
+        continue;
+      }
 
       if (isKling) {
         if (data.code !== undefined && data.code !== 0) {
@@ -1929,6 +2593,23 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
       // ?????????? video_url / result_url / Sora url / generations[].url / data.data.*
       const videoUrl = pickProxyVideoUrl(data);
       const errMsg = data.error && (typeof data.error === 'string' ? data.error : data.error.message);
+      if (isVolcPoll) {
+        const summaryJson = JSON.stringify(data);
+        const sum =
+          pollLogBodyMax === Infinity
+            ? summaryJson
+            : summaryJson.length <= pollLogBodyMax
+              ? summaryJson
+              : summaryJson.slice(0, pollLogBodyMax) + `... [共${summaryJson.length}字符]`;
+        log.info('[poll] 方舟/火山 解析摘要', {
+          video_gen_id: videoGenId,
+          round: pollRound,
+          top_level_status: status,
+          has_video_url: !!videoUrl,
+          error_hint: errMsg || data?.error?.code || data?.message || null,
+          parsed_json: sum,
+        });
+      }
       if (videoUrl) return { video_url: videoUrl };
       if (status === 'failed' || status === 'error' || status === 'cancelled' || errMsg) return { error: errMsg || status || '????' };
     } catch (e) {
